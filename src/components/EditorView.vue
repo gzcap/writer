@@ -1,12 +1,20 @@
 <script setup lang="ts">import { ref, inject, watch } from "vue";
 import { Plus, Search, User, Setting } from "@element-plus/icons-vue";
+import { ElMessageBox, ElMessage } from "element-plus";
 import type { Work, Chapter, Volume, AppState } from "../App.vue";
 const appState = inject<AppState>("appState")!;
 const loadChapter = inject<(id: string) => void>("loadChapter")!;
 const createNewChapter = inject<() => void>("createNewChapter")!;
 const createNewVolume = inject<() => void>("createNewVolume")!;
 const deleteVolume = inject<(volumeId: string) => void>("deleteVolume")!;
+const deleteChapter = inject<(chapterId: string) => void>("deleteChapter")!;
 const updateVolumeTitle = inject<(volumeId: string, title: string) => void>("updateVolumeTitle")!;
+const updateVolume = inject<(volumeId: string, title: string, description: string) => void>("updateVolume")!;
+const reorderVolumes = inject<(volumeIds: string[]) => void>("reorderVolumes")!;
+const reorderChapters = inject<(volumeId: string, chapterIds: string[]) => void>("reorderChapters")!;
+const autoSave = inject<() => void>("autoSave")!;
+const saveImmediately = inject<() => void>("saveImmediately")!;
+const markChapterModified = inject<(chapterId: string) => void>("markChapterModified")!;
 const chapterTitle = ref("");
 const chapterContent = ref("");
 const wordCount = ref(0);
@@ -14,9 +22,19 @@ const currentWork = ref<Work | null>(null);
 const currentChapter = ref<Chapter | null>(null);
 const searchQuery = ref("");
 const expandedSections = ref<Set<string>>(new Set());
+const activeVolumeMenu = ref<string | null>(null);
+
+// 分卷简介对话框
+const showVolumeDescDialog = ref(false);
 const editingVolumeId = ref<string | null>(null);
 const editingVolumeTitle = ref("");
-const activeVolumeMenu = ref<string | null>(null);
+const editingVolumeDesc = ref("");
+
+// 拖拽状态
+const draggedVolumeId = ref<string | null>(null);
+const draggedChapterId = ref<string | null>(null);
+const dragOverVolumeId = ref<string | null>(null);
+const dragOverChapterId = ref<string | null>(null);
 
 const getVolumeChapters = (volume: Volume) => {
   if (!currentWork.value) return [];
@@ -26,6 +44,12 @@ const getVolumeChapters = (volume: Volume) => {
 const getVolumeWords = (volume: Volume) => {
   const chapters = getVolumeChapters(volume);
   return chapters.reduce((sum, ch) => sum + ch.wordCount, 0);
+};
+
+// 获取排序后的卷列表
+const getSortedVolumes = () => {
+  if (!currentWork.value) return [];
+  return [...currentWork.value.volumes].sort((a, b) => a.order - b.order);
 };
 
 const createNewChapterInVolume = (volumeId: string) => {
@@ -49,35 +73,234 @@ const toggleVolumeMenu = (volumeId: string) => {
 const startEditVolume = (volume: Volume) => {
   editingVolumeId.value = volume.id;
   editingVolumeTitle.value = volume.title;
+  editingVolumeDesc.value = volume.description || '';
+  showVolumeDescDialog.value = true;
+  activeVolumeMenu.value = null;
 };
 
-const saveVolumeTitle = () => {
+const saveVolumeDesc = () => {
   if (editingVolumeId.value && editingVolumeTitle.value) {
-    updateVolumeTitle(editingVolumeId.value, editingVolumeTitle.value);
+    updateVolume(editingVolumeId.value, editingVolumeTitle.value, editingVolumeDesc.value);
+    showVolumeDescDialog.value = false;
     editingVolumeId.value = null;
     editingVolumeTitle.value = "";
+    editingVolumeDesc.value = "";
   }
 };
 
-const openOutlineModal = () => {
+const cancelVolumeDesc = () => {
+  showVolumeDescDialog.value = false;
+  editingVolumeId.value = null;
+  editingVolumeTitle.value = "";
+  editingVolumeDesc.value = "";
+};
+
+// 卷拖拽处理
+const onVolumeDragStart = (e: DragEvent, volumeId: string) => {
+  draggedVolumeId.value = volumeId;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', volumeId);
+  }
+};
+
+const onVolumeDragOver = (e: DragEvent, volumeId: string) => {
+  e.preventDefault();
+  if (draggedVolumeId.value && draggedVolumeId.value !== volumeId) {
+    dragOverVolumeId.value = volumeId;
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  }
+};
+
+const onVolumeDragLeave = () => {
+  dragOverVolumeId.value = null;
+};
+
+const onVolumeDrop = (e: DragEvent, targetVolumeId: string) => {
+  e.preventDefault();
+  if (draggedVolumeId.value && draggedVolumeId.value !== targetVolumeId) {
+    const sortedVolumes = getSortedVolumes();
+    const draggedIndex = sortedVolumes.findIndex(v => v.id === draggedVolumeId.value);
+    const targetIndex = sortedVolumes.findIndex(v => v.id === targetVolumeId);
+    
+    if (draggedIndex !== -1 && targetIndex !== -1) {
+      // 重新排序
+      const newOrder = [...sortedVolumes.map(v => v.id)];
+      newOrder.splice(draggedIndex, 1);
+      newOrder.splice(targetIndex, 0, draggedVolumeId.value);
+      
+      reorderVolumes(newOrder);
+    }
+  }
+  draggedVolumeId.value = null;
+  dragOverVolumeId.value = null;
+};
+
+const onVolumeDragEnd = () => {
+  draggedVolumeId.value = null;
+  dragOverVolumeId.value = null;
+};
+
+// 章节拖拽处理
+const onChapterDragStart = (e: DragEvent, chapterId: string, volumeId: string) => {
+  draggedChapterId.value = chapterId;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', chapterId);
+    e.dataTransfer.setData('volumeId', volumeId);
+  }
+};
+
+const onChapterDragOver = (e: DragEvent, chapterId: string) => {
+  e.preventDefault();
+  if (draggedChapterId.value && draggedChapterId.value !== chapterId) {
+    dragOverChapterId.value = chapterId;
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  }
+};
+
+const onChapterDragLeave = () => {
+  dragOverChapterId.value = null;
+};
+
+const onChapterDrop = (e: DragEvent, targetChapterId: string, volumeId: string) => {
+  e.preventDefault();
+  if (draggedChapterId.value && draggedChapterId.value !== targetChapterId) {
+    const volume = currentWork.value?.volumes.find(v => v.id === volumeId);
+    if (volume) {
+      const chapters = getVolumeChapters(volume);
+      const draggedIndex = chapters.findIndex(c => c.id === draggedChapterId.value);
+      const targetIndex = chapters.findIndex(c => c.id === targetChapterId);
+      
+      if (draggedIndex !== -1 && targetIndex !== -1) {
+        // 重新排序
+        const newOrder = [...volume.chapterIds];
+        newOrder.splice(draggedIndex, 1);
+        newOrder.splice(targetIndex, 0, draggedChapterId.value);
+        
+        reorderChapters(volumeId, newOrder);
+      }
+    }
+  }
+  draggedChapterId.value = null;
+  dragOverChapterId.value = null;
+};
+
+const onChapterDragEnd = () => {
+  draggedChapterId.value = null;
+  dragOverChapterId.value = null;
+};
+
+const openOutlineModal = async () => {
   console.log("Outline button clicked!");
-  console.log("appState.showOutlineModal before:", appState.showOutlineModal);
-  appState.showOutlineModal = true;
-  console.log("appState.showOutlineModal after:", appState.showOutlineModal);
+  if (!appState.currentWorkId) return;
+  await openViewWindow(appState.currentWorkId, "outline");
 };
 
-const openCharacterModal = () => {
+const openDescriptionModal = async () => {
+  console.log("Description button clicked!");
+  if (!appState.currentWorkId) return;
+  await openViewWindow(appState.currentWorkId, "description");
+};
+
+const openCharacterModal = async () => {
   console.log("Character button clicked!");
-  console.log("appState.showCharacterModal before:", appState.showCharacterModal);
-  appState.showCharacterModal = true;
-  console.log("appState.showCharacterModal after:", appState.showCharacterModal);
+  if (!appState.currentWorkId) return;
+  await openViewWindow(appState.currentWorkId, "character");
 };
 
-const openInspirationModal = () => {
+const openInspirationModal = async () => {
   console.log("Inspiration button clicked!");
-  console.log("appState.showInspirationModal before:", appState.showInspirationModal);
-  appState.showInspirationModal = true;
-  console.log("appState.showInspirationModal after:", appState.showInspirationModal);
+  if (!appState.currentWorkId) return;
+  await openViewWindow(appState.currentWorkId, "inspiration");
+};
+
+// 删除卷（带二次确认）
+const handleDeleteVolume = async (volumeId: string) => {
+  const volume = currentWork.value?.volumes.find(v => v.id === volumeId);
+  if (!volume) return;
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除卷 "${volume.title || '未命名卷'}" 吗？该卷下的所有章节也将被删除，删除后将无法恢复。`,
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+    
+    await deleteVolume(volumeId);
+    activeVolumeMenu.value = null;
+    ElMessage.success('删除成功');
+  } catch {
+    // 用户取消
+  }
+};
+
+// 删除章节（带二次确认）
+const handleDeleteChapter = async (chapterId: string) => {
+  const chapter = currentWork.value?.chapters.find(c => c.id === chapterId);
+  if (!chapter) return;
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除章节 "${chapter.title || '未命名章节'}" 吗？删除后将无法恢复。`,
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+    
+    await deleteChapter(chapterId);
+    ElMessage.success('删除成功');
+  } catch {
+    // 用户取消
+  }
+};
+
+// 打开新窗口显示视图
+const openViewWindow = async (workId: string, viewType: string) => {
+  console.log("openViewWindow called:", workId, viewType);
+  try {
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    const work = appState.works.find(w => w.id === workId);
+    const windowTitle = {
+      outline: "大纲",
+      character: "角色",
+      description: "简介",
+      inspiration: "灵感"
+    }[viewType] || "视图";
+    
+    const url = `/#/view?workId=${workId}&viewType=${viewType}&title=${encodeURIComponent(work?.title || '')}`;
+    console.log("Creating window with URL:", url);
+    
+    const label = `view-${viewType}-${Date.now()}`;
+    console.log("Window label:", label);
+    
+    new WebviewWindow(label, {
+      width: 900,
+      height: 600,
+      resizable: true,
+      minimizable: true,
+      maximizable: true,
+      title: windowTitle,
+      url: url
+    });
+    
+    console.log("Window created");
+  } catch (error) {
+    console.error("打开新窗口失败:", error);
+    // Fallback: 在当前窗口打开
+    window.location.hash = `/view?workId=${workId}&viewType=${viewType}`;
+  }
 };
 
 const getWork = () => {
@@ -128,8 +351,40 @@ watch(() => [appState.currentWorkId, appState.currentChapterId], () => {
   loadCurrentChapter();
 }, { immediate: true });
 
+// 内容变化时更新到 appState 并触发自动保存
 watch(chapterContent, (val) => {
   updateWordCount(val);
+  // 同步更新到 appState
+  const work = getWork();
+  const chapter = getChapter();
+  if (work && chapter) {
+    chapter.content = val;
+    chapter.wordCount = val.replace(/\s/g, '').length;
+    chapter.updatedAt = Date.now();
+    work.updatedAt = Date.now();
+    // 标记章节为已修改
+    markChapterModified(chapter.id);
+  }
+  autoSave();
+});
+
+// 章节标题变化时更新到 appState 并触发自动保存
+watch(chapterTitle, (val) => {
+  const work = getWork();
+  const chapter = getChapter();
+  if (work && chapter) {
+    chapter.title = val;
+    chapter.updatedAt = Date.now();
+    work.updatedAt = Date.now();
+    // 标记章节为已修改
+    markChapterModified(chapter.id);
+  }
+  autoSave();
+});
+
+// 切换章节前立即保存
+watch(() => appState.currentChapterId, () => {
+  saveImmediately();
 });
 </script>
 
@@ -172,30 +427,30 @@ watch(chapterContent, (val) => {
         <div v-if="currentWork?.volumes.length === 0" class="empty-volume">
           <span>暂无卷</span>
         </div>
-        <div v-for="volume in currentWork?.volumes" :key="volume.id" class="volume-section">
-          <div 
-            class="volume-header" 
+        <div 
+          v-for="volume in getSortedVolumes()" 
+          :key="volume.id" 
+          class="volume-section"
+          :class="{ dragging: draggedVolumeId === volume.id, 'drag-over': dragOverVolumeId === volume.id }"
+          draggable="true"
+          @dragstart="onVolumeDragStart($event, volume.id)"
+          @dragover="onVolumeDragOver($event, volume.id)"
+          @dragleave="onVolumeDragLeave"
+          @drop="onVolumeDrop($event, volume.id)"
+          @dragend="onVolumeDragEnd"
+        >
+          <div
+            class="volume-header"
             @click="toggleSection(volume.id)"
           >
             <span class="expand-icon">{{ expandedSections.has(volume.id) ? '▼' : '▶' }}</span>
-            <template v-if="editingVolumeId === volume.id">
-              <input 
-                v-model="editingVolumeTitle" 
-                class="volume-title-input" 
-                @keyup.enter="saveVolumeTitle"
-                @blur="saveVolumeTitle"
-                @click.stop
-              />
-            </template>
-            <template v-else>
-              <span class="volume-title" @click.stop="startEditVolume(volume)">{{ volume.title || "未命名卷" }}</span>
-            </template>
+            <span class="volume-title">{{ volume.title || "未命名卷" }}</span>
             <span class="volume-count">{{ getVolumeChapters(volume).length }}章 {{ getVolumeWords(volume) }}字</span>
             <button class="volume-add-chapter" @click.stop="createNewChapterInVolume(volume.id)">
               <span class="add-icon">+</span>
             </button>
-            <button 
-              class="volume-more-btn" 
+            <button
+              class="volume-more-btn"
               @click.stop="toggleVolumeMenu(volume.id)"
             >
               <span class="more-icon">⋯</span>
@@ -211,10 +466,7 @@ watch(chapterContent, (val) => {
                 <div class="menu-info">{{ getVolumeChapters(volume).length }}章 {{ getVolumeWords(volume) }}字</div>
               </div>
               <div class="menu-divider"></div>
-              <div class="menu-item" @click="startEditVolume(volume); activeVolumeMenu = null">
-                重命名
-              </div>
-              <div class="menu-item">
+              <div class="menu-item" @click="startEditVolume(volume)">
                 分卷简介
               </div>
               <div class="menu-item" @click="createNewChapterInVolume(volume.id); activeVolumeMenu = null">
@@ -224,7 +476,7 @@ watch(chapterContent, (val) => {
                 合并导出章节
               </div>
               <div class="menu-divider"></div>
-              <div class="menu-item danger" @click="deleteVolume(volume.id); activeVolumeMenu = null">
+              <div class="menu-item danger" @click="handleDeleteVolume(volume.id)">
                 删除本卷
               </div>
             </div>
@@ -234,11 +486,20 @@ watch(chapterContent, (val) => {
               v-for="chapter in getVolumeChapters(volume)"
               :key="chapter.id"
               class="chapter-item"
-              :class="{ active: chapter.id === appState.currentChapterId }"
+              :class="{ active: chapter.id === appState.currentChapterId, dragging: draggedChapterId === chapter.id, 'drag-over': dragOverChapterId === chapter.id }"
+              draggable="true"
+              @dragstart="onChapterDragStart($event, chapter.id, volume.id)"
+              @dragover="onChapterDragOver($event, chapter.id)"
+              @dragleave="onChapterDragLeave"
+              @drop="onChapterDrop($event, chapter.id, volume.id)"
+              @dragend="onChapterDragEnd"
               @click="loadChapter(chapter.id)"
             >
               <span class="chapter-title">{{ chapter.title || "未命名章节" }}</span>
               <span class="chapter-words">{{ chapter.wordCount }}字</span>
+              <div class="chapter-actions">
+                <button class="chapter-delete-btn" @click.stop="handleDeleteChapter(chapter.id)" title="删除章节">×</button>
+              </div>
             </div>
           </div>
         </div>
@@ -253,6 +514,11 @@ watch(chapterContent, (val) => {
           >
             <span class="chapter-title">{{ chapter.title || "未命名章节" }}</span>
             <span class="chapter-words">{{ chapter.wordCount }}字</span>
+            <div class="chapter-actions">
+              <button class="chapter-move-btn" @click.stop="moveChapter(chapter.id, 'up')" title="上移" :disabled="currentWork?.chapters.findIndex(c => c.id === chapter.id) === 0">↑</button>
+              <button class="chapter-move-btn" @click.stop="moveChapter(chapter.id, 'down')" title="下移" :disabled="currentWork?.chapters.findIndex(c => c.id === chapter.id) === currentWork?.chapters.length - 1">↓</button>
+              <button class="chapter-delete-btn" @click.stop="handleDeleteChapter(chapter.id)" title="删除章节">×</button>
+            </div>
           </div>
         </div>
       </div>
@@ -366,9 +632,9 @@ watch(chapterContent, (val) => {
         <span class="tool-icon">✓</span>
         <span class="tool-name">校对</span>
       </div>
-      <div class="side-tool-item" @click="() => {}">
+      <div class="side-tool-item" @click="openDescriptionModal">
         <span class="tool-icon">📝</span>
-        <span class="tool-name">拼字</span>
+        <span class="tool-name">简介</span>
       </div>
       <div class="side-tool-item" @click="openOutlineModal">
         <span class="tool-icon">📋</span>
@@ -395,6 +661,34 @@ watch(chapterContent, (val) => {
         <span class="tool-name">回收</span>
       </div>
     </aside>
+    
+    <!-- 分卷简介对话框 -->
+    <el-dialog
+      v-model="showVolumeDescDialog"
+      title="分卷简介"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="80px">
+        <el-form-item label="卷名">
+          <el-input v-model="editingVolumeTitle" placeholder="请输入卷名" />
+        </el-form-item>
+        <el-form-item label="简介">
+          <el-input
+            v-model="editingVolumeDesc"
+            type="textarea"
+            :rows="6"
+            placeholder="请输入分卷简介"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="cancelVolumeDesc">取消</el-button>
+          <el-button type="primary" @click="saveVolumeDesc">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -671,7 +965,6 @@ watch(chapterContent, (val) => {
   background: #ffe4e4;
 }
 
-.volume-title-input,
 .chapter-title-input {
   flex: 1;
   border: 1px solid #c45c3e;
@@ -726,6 +1019,60 @@ watch(chapterContent, (val) => {
   font-size: 11px;
   color: #999;
   margin-left: 8px;
+}
+
+.chapter-actions {
+  display: none;
+  margin-left: 8px;
+}
+
+.chapter-item:hover .chapter-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chapter-delete-btn {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: #ff4d4d;
+  color: white;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chapter-delete-btn:hover {
+  background: #ff2222;
+}
+
+.menu-item.disabled {
+  color: #c0c4cc;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* 拖拽样式 */
+.volume-section.dragging {
+  opacity: 0.5;
+  background: #f0f0f0;
+}
+
+.volume-section.drag-over {
+  border-top: 2px solid #409eff;
+}
+
+.chapter-item.dragging {
+  opacity: 0.5;
+  background: #f0f0f0;
+}
+
+.chapter-item.drag-over {
+  border-top: 2px solid #409eff;
 }
 
 .sidebar-footer {
