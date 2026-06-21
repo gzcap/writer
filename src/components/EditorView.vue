@@ -1,24 +1,84 @@
-<script setup lang="ts">
-import { ref, inject, watch } from "vue";
-import { Plus, Search, User, Setting, Delete, Close } from "@element-plus/icons-vue";
-import type { Work, Chapter, AppState } from "../App.vue";
-
+<script setup lang="ts">import { ref, inject, watch } from "vue";
+import { Plus, Search, User, Setting } from "@element-plus/icons-vue";
+import type { Work, Chapter, Volume, AppState } from "../App.vue";
 const appState = inject<AppState>("appState")!;
 const loadChapter = inject<(id: string) => void>("loadChapter")!;
-const closeTab = inject<(tabId: string) => void>("closeTab")!;
-const switchTab = inject<(tabId: string) => void>("switchTab")!;
-const showOutlineModal = inject<{ value: boolean }>("showOutlineModal")!;
-const showCharacterModal = inject<{ value: boolean }>("showCharacterModal")!;
-const showInspirationModal = inject<{ value: boolean }>("showInspirationModal")!;
-const showSettingModal = inject<{ value: boolean }>("showSettingModal")!;
-
+const createNewChapter = inject<() => void>("createNewChapter")!;
+const createNewVolume = inject<() => void>("createNewVolume")!;
+const deleteVolume = inject<(volumeId: string) => void>("deleteVolume")!;
+const updateVolumeTitle = inject<(volumeId: string, title: string) => void>("updateVolumeTitle")!;
 const chapterTitle = ref("");
 const chapterContent = ref("");
 const wordCount = ref(0);
 const currentWork = ref<Work | null>(null);
 const currentChapter = ref<Chapter | null>(null);
 const searchQuery = ref("");
-const expandedSections = ref<Set<string>>(new Set(["volume-1"]));
+const expandedSections = ref<Set<string>>(new Set());
+const editingVolumeId = ref<string | null>(null);
+const editingVolumeTitle = ref("");
+const activeVolumeMenu = ref<string | null>(null);
+
+const getVolumeChapters = (volume: Volume) => {
+  if (!currentWork.value) return [];
+  return currentWork.value.chapters.filter((ch) => volume.chapterIds.includes(ch.id));
+};
+
+const getVolumeWords = (volume: Volume) => {
+  const chapters = getVolumeChapters(volume);
+  return chapters.reduce((sum, ch) => sum + ch.wordCount, 0);
+};
+
+const createNewChapterInVolume = (volumeId: string) => {
+  createNewChapter();
+  const work = getWork();
+  if (work) {
+    const volume = work.volumes.find((v) => v.id === volumeId);
+    if (volume && work.chapters.length > 0) {
+      const newChapter = work.chapters[work.chapters.length - 1];
+      if (!volume.chapterIds.includes(newChapter.id)) {
+        volume.chapterIds.push(newChapter.id);
+      }
+    }
+  }
+};
+
+const toggleVolumeMenu = (volumeId: string) => {
+  activeVolumeMenu.value = activeVolumeMenu.value === volumeId ? null : volumeId;
+};
+
+const startEditVolume = (volume: Volume) => {
+  editingVolumeId.value = volume.id;
+  editingVolumeTitle.value = volume.title;
+};
+
+const saveVolumeTitle = () => {
+  if (editingVolumeId.value && editingVolumeTitle.value) {
+    updateVolumeTitle(editingVolumeId.value, editingVolumeTitle.value);
+    editingVolumeId.value = null;
+    editingVolumeTitle.value = "";
+  }
+};
+
+const openOutlineModal = () => {
+  console.log("Outline button clicked!");
+  console.log("appState.showOutlineModal before:", appState.showOutlineModal);
+  appState.showOutlineModal = true;
+  console.log("appState.showOutlineModal after:", appState.showOutlineModal);
+};
+
+const openCharacterModal = () => {
+  console.log("Character button clicked!");
+  console.log("appState.showCharacterModal before:", appState.showCharacterModal);
+  appState.showCharacterModal = true;
+  console.log("appState.showCharacterModal after:", appState.showCharacterModal);
+};
+
+const openInspirationModal = () => {
+  console.log("Inspiration button clicked!");
+  console.log("appState.showInspirationModal before:", appState.showInspirationModal);
+  appState.showInspirationModal = true;
+  console.log("appState.showInspirationModal after:", appState.showInspirationModal);
+};
 
 const getWork = () => {
   return appState.works.find((w: Work) => w.id === appState.currentWorkId);
@@ -87,8 +147,11 @@ watch(chapterContent, (val) => {
           />
         </div>
         <div class="sidebar-actions">
-          <el-button :icon="Plus" size="small" class="new-volume-btn">
+          <el-button :icon="Plus" size="small" class="new-volume-btn" @click="createNewVolume">
             新建卷
+          </el-button>
+          <el-button :icon="Plus" size="small" class="new-chapter-btn-inline" @click="createNewChapter">
+            新建章
           </el-button>
         </div>
       </div>
@@ -106,26 +169,90 @@ watch(chapterContent, (val) => {
       </div>
       
       <div class="chapter-tree">
-        <div class="volume-section">
+        <div v-if="currentWork?.volumes.length === 0" class="empty-volume">
+          <span>暂无卷</span>
+        </div>
+        <div v-for="volume in currentWork?.volumes" :key="volume.id" class="volume-section">
           <div 
             class="volume-header" 
-            @click="toggleSection('volume-1')"
+            @click="toggleSection(volume.id)"
           >
-            <span class="expand-icon">{{ expandedSections.has('volume-1') ? '▼' : '▶' }}</span>
-            <span class="volume-title">第一卷 武陵篇</span>
-            <span class="volume-count">2章</span>
+            <span class="expand-icon">{{ expandedSections.has(volume.id) ? '▼' : '▶' }}</span>
+            <template v-if="editingVolumeId === volume.id">
+              <input 
+                v-model="editingVolumeTitle" 
+                class="volume-title-input" 
+                @keyup.enter="saveVolumeTitle"
+                @blur="saveVolumeTitle"
+                @click.stop
+              />
+            </template>
+            <template v-else>
+              <span class="volume-title" @click.stop="startEditVolume(volume)">{{ volume.title || "未命名卷" }}</span>
+            </template>
+            <span class="volume-count">{{ getVolumeChapters(volume).length }}章 {{ getVolumeWords(volume) }}字</span>
+            <button class="volume-add-chapter" @click.stop="createNewChapterInVolume(volume.id)">
+              <span class="add-icon">+</span>
+            </button>
+            <button 
+              class="volume-more-btn" 
+              @click.stop="toggleVolumeMenu(volume.id)"
+            >
+              <span class="more-icon">⋯</span>
+            </button>
+            <!-- 卷菜单 -->
+            <div 
+              v-if="activeVolumeMenu === volume.id" 
+              class="volume-menu"
+              @click.stop
+            >
+              <div class="menu-header">
+                <div class="menu-title">{{ volume.title || "未命名卷" }}</div>
+                <div class="menu-info">{{ getVolumeChapters(volume).length }}章 {{ getVolumeWords(volume) }}字</div>
+              </div>
+              <div class="menu-divider"></div>
+              <div class="menu-item" @click="startEditVolume(volume); activeVolumeMenu = null">
+                重命名
+              </div>
+              <div class="menu-item">
+                分卷简介
+              </div>
+              <div class="menu-item" @click="createNewChapterInVolume(volume.id); activeVolumeMenu = null">
+                新建章节
+              </div>
+              <div class="menu-item">
+                合并导出章节
+              </div>
+              <div class="menu-divider"></div>
+              <div class="menu-item danger" @click="deleteVolume(volume.id); activeVolumeMenu = null">
+                删除本卷
+              </div>
+            </div>
           </div>
-          <div v-if="expandedSections.has('volume-1')" class="chapter-nested">
+          <div v-if="expandedSections.has(volume.id)" class="chapter-nested">
             <div
-              v-for="chapter in currentWork?.chapters"
+              v-for="chapter in getVolumeChapters(volume)"
               :key="chapter.id"
               class="chapter-item"
               :class="{ active: chapter.id === appState.currentChapterId }"
-              @click.stop="loadChapter(chapter.id)"
+              @click="loadChapter(chapter.id)"
             >
               <span class="chapter-title">{{ chapter.title || "未命名章节" }}</span>
               <span class="chapter-words">{{ chapter.wordCount }}字</span>
             </div>
+          </div>
+        </div>
+        
+        <div v-if="currentWork && currentWork.chapters && currentWork.chapters.length > 0 && currentWork.volumes && currentWork.volumes.length === 0" class="chapter-nested">
+          <div
+            v-for="chapter in currentWork?.chapters"
+            :key="chapter.id"
+            class="chapter-item"
+            :class="{ active: chapter.id === appState.currentChapterId }"
+            @click="loadChapter(chapter.id)"
+          >
+            <span class="chapter-title">{{ chapter.title || "未命名章节" }}</span>
+            <span class="chapter-words">{{ chapter.wordCount }}字</span>
           </div>
         </div>
       </div>
@@ -139,21 +266,6 @@ watch(chapterContent, (val) => {
     </aside>
     
     <main class="editor-main">
-      <div class="tabs-bar" v-if="appState.tabs.length > 0">
-        <div
-          v-for="tab in appState.tabs"
-          :key="tab.id"
-          class="tab-item"
-          :class="{ active: appState.currentTabId === tab.id }"
-          @click="switchTab(tab.id)"
-        >
-          <span class="tab-title">{{ tab.title }}</span>
-          <button class="tab-close" @click.stop="closeTab(tab.id)">
-              <Close class="close-icon" />
-            </button>
-        </div>
-      </div>
-      
       <header class="editor-toolbar">
         <div class="toolbar-left">
           <button class="tool-btn">
@@ -258,19 +370,19 @@ watch(chapterContent, (val) => {
         <span class="tool-icon">📝</span>
         <span class="tool-name">拼字</span>
       </div>
-      <div class="side-tool-item" @click="showOutlineModal.value = true">
+      <div class="side-tool-item" @click="openOutlineModal">
         <span class="tool-icon">📋</span>
         <span class="tool-name">大纲</span>
       </div>
-      <div class="side-tool-item" @click="showCharacterModal.value = true">
+      <div class="side-tool-item" @click="openCharacterModal">
         <User class="tool-icon el-icon" />
         <span class="tool-name">角色</span>
       </div>
-      <div class="side-tool-item" @click="showSettingModal.value = true">
+      <div class="side-tool-item" @click="appState.showSettingModal = true">
         <Setting class="tool-icon el-icon" />
         <span class="tool-name">设定</span>
       </div>
-      <div class="side-tool-item" @click="showInspirationModal.value = true">
+      <div class="side-tool-item" @click="openInspirationModal">
         <span class="tool-icon">💡</span>
         <span class="tool-name">灵感</span>
       </div>
@@ -330,8 +442,13 @@ watch(chapterContent, (val) => {
   background: transparent;
 }
 
+.sidebar-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .new-volume-btn {
-  width: 100%;
+  flex: 1;
   background: #c45c3e;
   color: white;
   border: none;
@@ -340,6 +457,18 @@ watch(chapterContent, (val) => {
 
 .new-volume-btn:hover {
   background: #a84a32;
+}
+
+.new-chapter-btn-inline {
+  flex: 1;
+  background: #4facfe;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
+
+.new-chapter-btn-inline:hover {
+  background: #3a9ce8;
 }
 
 .sidebar-tabs {
@@ -412,6 +541,7 @@ watch(chapterContent, (val) => {
   background: white;
   border-radius: 4px;
   margin-bottom: 2px;
+  position: relative;
 }
 
 .expand-icon {
@@ -428,6 +558,134 @@ watch(chapterContent, (val) => {
 .volume-count {
   font-size: 11px;
   color: #999;
+  margin-right: 6px;
+}
+
+.edit-icon,
+.delete-icon {
+  width: 14px;
+  height: 14px;
+  color: #999;
+}
+
+.delete-icon:hover {
+  color: #c45c3e;
+}
+
+.volume-add-chapter {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #c45c3e;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: auto;
+  font-size: 14px;
+}
+
+.volume-add-chapter:hover {
+  background: #a84a32;
+}
+
+.add-icon {
+  line-height: 1;
+}
+
+.volume-more-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 4px;
+  font-size: 16px;
+  color: #999;
+}
+
+.volume-more-btn:hover {
+  background: #f0ebe3;
+}
+
+.more-icon {
+  line-height: 1;
+}
+
+.volume-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  width: 180px;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.menu-header {
+  padding: 10px 12px;
+  background: #f8f4eb;
+}
+
+.menu-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.menu-info {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.menu-divider {
+  height: 1px;
+  background: #e8e4dc;
+}
+
+.menu-item {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #333;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: #f5f0e8;
+}
+
+.menu-item.danger {
+  color: #c45c3e;
+}
+
+.menu-item.danger:hover {
+  background: #ffe4e4;
+}
+
+.volume-title-input,
+.chapter-title-input {
+  flex: 1;
+  border: 1px solid #c45c3e;
+  border-radius: 2px;
+  padding: 2px 4px;
+  font-size: 12px;
+  outline: none;
+}
+
+.empty-volume {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+  font-size: 12px;
 }
 
 .chapter-nested {
@@ -505,67 +763,6 @@ watch(chapterContent, (val) => {
   flex-direction: column;
   background: #fdf5e6;
   position: relative;
-}
-
-.tabs-bar {
-  display: flex;
-  gap: 4px;
-  padding: 4px 8px;
-  background: #f8f4eb;
-  border-bottom: 1px solid #e8e4dc;
-}
-
-.tab-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: white;
-  border-radius: 4px 4px 0 0;
-  cursor: pointer;
-  font-size: 12px;
-  color: #666;
-  border: 1px solid #e8e4dc;
-  border-bottom: none;
-}
-
-.tab-item:hover {
-  background: #f5f0e8;
-}
-
-.tab-item.active {
-  background: #fdf5e6;
-  color: #c45c3e;
-  font-weight: 500;
-}
-
-.tab-title {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab-close {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 2px;
-  border-radius: 2px;
-}
-
-.tab-close:hover {
-  background: #ffe4e4;
-}
-
-.close-icon {
-  width: 12px;
-  height: 12px;
-  color: #999;
-}
-
-.tab-close:hover .close-icon {
-  color: #c45c3e;
 }
 
 .editor-toolbar {

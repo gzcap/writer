@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, provide, reactive } from "vue";
+import { provide, reactive } from "vue";
 import HomeView from "./components/HomeView.vue";
 import EditorView from "./components/EditorView.vue";
 import OutlineModal from "./components/OutlineModal.vue";
@@ -11,6 +11,13 @@ export interface ChapterOutline {
   id: string;
   title: string;
   content: string;
+  order: number;
+}
+
+export interface Volume {
+  id: string;
+  title: string;
+  chapterIds: string[];
   order: number;
 }
 
@@ -59,6 +66,7 @@ export interface Work {
   title: string;
   description: string;
   genre: string;
+  volumes: Volume[];
   chapters: Chapter[];
   characters: Character[];
   outline: OutlineItem[];
@@ -78,6 +86,10 @@ export interface AppState {
   dailyTarget: number;
   tabs: Tab[];
   currentTabId: string | null;
+  showOutlineModal: boolean;
+  showCharacterModal: boolean;
+  showInspirationModal: boolean;
+  showSettingModal: boolean;
 }
 
 export interface Tab {
@@ -100,12 +112,13 @@ const appState = reactive<AppState>({
   dailyTarget: 3000,
   tabs: [],
   currentTabId: null,
+  showOutlineModal: false,
+  showCharacterModal: false,
+  showInspirationModal: false,
+  showSettingModal: false,
 });
 
-const showOutlineModal = ref(false);
-const showCharacterModal = ref(false);
-const showInspirationModal = ref(false);
-const showSettingModal = ref(false);
+
 
 const loadData = () => {
   const saved = localStorage.getItem("writer-data");
@@ -121,6 +134,14 @@ const loadData = () => {
         title: "我的灵感是一方世界",
         description: "一个充满想象力的故事",
         genre: "玄幻",
+        volumes: [
+          {
+            id: generateId(),
+            title: "第一卷 武陵篇",
+            chapterIds: [],
+            order: 0,
+          },
+        ],
         chapters: [
           {
             id: generateId(),
@@ -197,12 +218,33 @@ const saveData = () => {
 };
 
 const createNewWork = () => {
+  const chapterId = generateId();
+  const volumeId = generateId();
+  
+  const newChapter: Chapter = {
+    id: chapterId,
+    title: "第1章",
+    content: "",
+    wordCount: 0,
+    chapterOutline: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  
+  const newVolume: Volume = {
+    id: volumeId,
+    title: "第一卷",
+    chapterIds: [chapterId],
+    order: 0,
+  };
+  
   const newWork: Work = {
     id: generateId(),
     title: "新作品",
     description: "",
     genre: "",
-    chapters: [],
+    volumes: [newVolume],
+    chapters: [newChapter],
     characters: [],
     outline: [],
     inspirations: [],
@@ -222,21 +264,60 @@ const openWork = (workId: string) => {
   const work = appState.works.find((w) => w.id === workId);
   if (!work) return;
   
+  // 如果没有章节，自动创建一个
+  let chapterId = work.chapters[0]?.id;
+  if (!chapterId) {
+    const newChapter: Chapter = {
+      id: generateId(),
+      title: "第1章",
+      content: "",
+      wordCount: 0,
+      chapterOutline: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    work.chapters.push(newChapter);
+    chapterId = newChapter.id;
+    
+    // 如果没有卷，创建一个默认卷
+    if (work.volumes.length === 0) {
+      const newVolume: Volume = {
+        id: generateId(),
+        title: "第一卷",
+        chapterIds: [chapterId],
+        order: 0,
+      };
+      work.volumes.push(newVolume);
+    } else {
+      // 添加到第一个卷
+      work.volumes[0].chapterIds.push(chapterId);
+    }
+    
+    saveData();
+  }
+  
   const newTab: Tab = {
     id: generateId(),
     workId: workId,
-    chapterId: work.chapters[0]?.id || null,
+    chapterId: chapterId,
     title: work.title || "未命名",
   };
   
   appState.tabs.push(newTab);
   appState.currentTabId = newTab.id;
   appState.currentWorkId = workId;
-  appState.currentChapterId = newTab.chapterId;
+  appState.currentChapterId = chapterId;
   appState.view = "editor";
 };
 
 const closeTab = (tabId: string) => {
+  const tab = appState.tabs.find((t) => t.id === tabId);
+  if (!tab) return;
+  
+  if (tab.workId === "home") {
+    return;
+  }
+  
   const tabIndex = appState.tabs.findIndex((t) => t.id === tabId);
   if (tabIndex === -1) return;
   
@@ -247,14 +328,56 @@ const closeTab = (tabId: string) => {
       const newIndex = Math.min(tabIndex, appState.tabs.length - 1);
       const newTab = appState.tabs[newIndex];
       appState.currentTabId = newTab.id;
-      appState.currentWorkId = newTab.workId;
-      appState.currentChapterId = newTab.chapterId;
+      if (newTab.workId === "home") {
+        appState.currentWorkId = null;
+        appState.currentChapterId = null;
+        appState.view = "home";
+      } else {
+        appState.currentWorkId = newTab.workId;
+        appState.currentChapterId = newTab.chapterId;
+      }
     } else {
       appState.currentTabId = null;
       appState.currentWorkId = null;
       appState.currentChapterId = null;
       appState.view = "home";
     }
+  }
+};
+
+const createNewVolume = () => {
+  const work = appState.works.find((w) => w.id === appState.currentWorkId);
+  if (!work) return;
+  const newVolume: Volume = {
+    id: generateId(),
+    title: `第${work.volumes.length + 1}卷`,
+    chapterIds: [],
+    order: work.volumes.length,
+  };
+  work.volumes.push(newVolume);
+  saveData();
+};
+
+const deleteVolume = (volumeId: string) => {
+  const work = appState.works.find((w) => w.id === appState.currentWorkId);
+  if (!work) return;
+  const volume = work.volumes.find((v) => v.id === volumeId);
+  if (volume) {
+    volume.chapterIds.forEach((chapterId) => {
+      work.chapters = work.chapters.filter((c) => c.id !== chapterId);
+    });
+    work.volumes = work.volumes.filter((v) => v.id !== volumeId);
+    saveData();
+  }
+};
+
+const updateVolumeTitle = (volumeId: string, title: string) => {
+  const work = appState.works.find((w) => w.id === appState.currentWorkId);
+  if (!work) return;
+  const volume = work.volumes.find((v) => v.id === volumeId);
+  if (volume) {
+    volume.title = title;
+    saveData();
   }
 };
 
@@ -265,6 +388,8 @@ const switchTab = (tabId: string) => {
   appState.currentTabId = tabId;
   appState.currentWorkId = tab.workId;
   appState.currentChapterId = tab.chapterId;
+  // 切换到编辑器视图
+  appState.view = "editor";
 };
 
 const createNewChapter = () => {
@@ -280,6 +405,11 @@ const createNewChapter = () => {
     updatedAt: Date.now(),
   };
   work.chapters.push(newChapter);
+  
+  if (work.volumes.length > 0) {
+    work.volumes[0].chapterIds.push(newChapter.id);
+  }
+  
   appState.currentChapterId = newChapter.id;
   saveData();
 };
@@ -343,11 +473,13 @@ const deleteInspiration = (inspId: string) => {
 };
 
 const goHome = () => {
+  // 移除可能存在的首页标签（防止重复）
+  appState.tabs = appState.tabs.filter((t) => t.workId !== "home");
+  // 直接切换到首页视图，不创建新标签
   appState.view = "home";
+  appState.currentTabId = null;
   appState.currentWorkId = null;
   appState.currentChapterId = null;
-  appState.tabs = [];
-  appState.currentTabId = null;
 };
 
 const loadChapter = (chapterId: string) => {
@@ -361,6 +493,9 @@ provide("deleteWork", deleteWork);
 provide("openWork", openWork);
 provide("createNewChapter", createNewChapter);
 provide("deleteChapter", deleteChapter);
+provide("createNewVolume", createNewVolume);
+provide("deleteVolume", deleteVolume);
+provide("updateVolumeTitle", updateVolumeTitle);
 provide("addCharacter", addCharacter);
 provide("deleteCharacter", deleteCharacter);
 provide("addInspiration", addInspiration);
@@ -369,36 +504,61 @@ provide("goHome", goHome);
 provide("loadChapter", loadChapter);
 provide("closeTab", closeTab);
 provide("switchTab", switchTab);
-provide("showOutlineModal", showOutlineModal);
-provide("showCharacterModal", showCharacterModal);
-provide("showInspirationModal", showInspirationModal);
-provide("showSettingModal", showSettingModal);
 
 loadData();
 </script>
 
 <template>
   <div class="app-container">
-    <HomeView v-if="appState.view === 'home'" />
-    <EditorView v-else />
+    <div class="tabs-bar">
+      <div
+        class="tab-item home-tab"
+        :class="{ active: appState.view === 'home' }"
+        @click="goHome()"
+      >
+        <span class="tab-title">首页</span>
+        <span class="tab-close-disabled">●</span>
+      </div>
+      <div
+        v-for="tab in appState.tabs"
+        :key="tab.id"
+        class="tab-item"
+        :class="{ active: appState.currentTabId === tab.id }"
+        @click="switchTab(tab.id)"
+      >
+        <span class="tab-title">{{ tab.title }}</span>
+        <button class="tab-close" @click.stop="closeTab(tab.id)">
+          ×
+        </button>
+      </div>
+    </div>
+    
+    <div class="main-content">
+      <HomeView v-if="appState.view === 'home'" />
+      <EditorView v-else />
+    </div>
     
     <OutlineModal
-      v-model:visible="showOutlineModal"
+      :visible="appState.showOutlineModal"
+      @update:visible="appState.showOutlineModal = $event"
       :work="appState.works.find(w => w.id === appState.currentWorkId)"
     />
     
     <CharacterModal
-      v-model:visible="showCharacterModal"
+      :visible="appState.showCharacterModal"
+      @update:visible="appState.showCharacterModal = $event"
       :work="appState.works.find(w => w.id === appState.currentWorkId)"
     />
     
     <InspirationModal
-      v-model:visible="showInspirationModal"
+      :visible="appState.showInspirationModal"
+      @update:visible="appState.showInspirationModal = $event"
       :work="appState.works.find(w => w.id === appState.currentWorkId)"
     />
     
     <SettingModal
-      v-model:visible="showSettingModal"
+      :visible="appState.showSettingModal"
+      @update:visible="appState.showSettingModal = $event"
       :work-id="appState.currentWorkId || ''"
     />
   </div>
@@ -418,6 +578,77 @@ body {
 }
 
 .app-container {
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.tabs-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #f8f4eb;
+  border-bottom: 1px solid #e8e4dc;
+  min-height: 36px;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: white;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+  border: 1px solid #e8e4dc;
+  border-bottom: none;
+  transition: all 0.2s;
+}
+
+.tab-item:hover {
+  background: #f5f0e8;
+}
+
+.tab-item.active {
+  background: #fdf5e6;
+  color: #c45c3e;
+  font-weight: 500;
+}
+
+.tab-title {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
+  font-size: 14px;
+  color: #999;
+  line-height: 1;
+}
+
+.tab-close:hover {
+  background: #ffe4e4;
+  color: #c45c3e;
+}
+
+.tab-close-disabled {
+  width: 12px;
+  height: 12px;
+  color: #ccc;
+  font-size: 8px;
+}
+
+.main-content {
+  flex: 1;
+  overflow: hidden;
 }
 </style>

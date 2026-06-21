@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { inject, ref } from "vue";
 import { Plus, Folder, Document, Bell, More, User, DataAnalysis } from "@element-plus/icons-vue";
-import type { Work } from "../App.vue";
+import type { Work, AppState } from "../App.vue";
 
-const appState = inject<{ works: Work[] }>("appState")!;
+const appState = inject<AppState>("appState")!;
 const createNewWork = inject<() => void>("createNewWork")!;
 const openWork = inject<(id: string) => void>("openWork")!;
 
