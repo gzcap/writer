@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from "vue";
 import type { Work, OutlineItem, Character, Inspiration } from "../types";
 import { Search, Delete, Plus, ArrowDown, ArrowRight, User, Close } from "@element-plus/icons-vue";
+import Description from "./Description.vue";
 import { ElButton, ElMessageBox, ElMessage } from "element-plus";
 
 // 从 URL 参数获取数据
@@ -17,7 +18,6 @@ const saveTimeout = ref<number | null>(null);
 const outlineItems = ref<OutlineItem[]>([]);
 const characters = ref<Character[]>([]);
 const inspirations = ref<Inspiration[]>([]);
-const descriptionContent = ref("");
 
 // 大纲相关
 const selectedItemId = ref<string | null>(null);
@@ -520,34 +520,6 @@ const saveCharactersToFile = async () => {
   }
 };
 
-// 简介相关
-const saveDescriptionToFile = async () => {
-  if (!workId.value) return;
-  
-  saveStatus.value = "saving";
-  
-  try {
-    const { mkdir, writeTextFile } = await import("@tauri-apps/plugin-fs");
-    const { join } = await import("@tauri-apps/api/path");
-    
-    const savePath = "/Users/zmh/Downloads/writer";
-    const sanitizeFileName = (name: string) => {
-      return name.replace(/[\\/:*?"<>|]/g, "_").trim();
-    };
-    
-    const workFolder = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"));
-    await mkdir(workFolder, { recursive: true });
-    
-    const descPath = await join(workFolder, "简介.md");
-    await writeTextFile(descPath, descriptionContent.value);
-    
-    saveStatus.value = "saved";
-  } catch (error) {
-    console.error("保存简介失败:", error);
-    saveStatus.value = "error";
-  }
-};
-
 // 灵感相关
 const addInspiration = () => {
   if (!work.value) return;
@@ -683,10 +655,6 @@ onMounted(async () => {
     await loadOutlineFromFile();
   } else if (viewType.value === "character" && work.value) {
     characters.value = work.value.characters;
-  } else if (viewType.value === "description" && work.value) {
-    descriptionContent.value = work.value.description || "";
-    // 简介初始状态为已保存
-    saveStatus.value = "saved";
   } else if (viewType.value === "inspiration" && work.value) {
     inspirations.value = work.value.inspirations;
   }
@@ -902,21 +870,7 @@ onMounted(async () => {
     </div>
     
     <!-- 简介视图 -->
-    <div v-else-if="viewType === 'description'" class="description-container">
-      <div class="description-header">
-        <h2 class="description-title">书籍简介</h2>
-        <div class="description-status">
-          <span class="status-text">{{ saveStatus === 'saving' ? '正在保存...' : '已保存' }}</span>
-          <button class="save-btn" @click="saveDescriptionToFile" :disabled="saveStatus === 'saving'" title="保存到本地">
-            <span class="save-icon" :class="{ spinning: saveStatus === 'saving' }">⟳</span>
-          </button>
-        </div>
-      </div>
-      <textarea v-model="descriptionContent" class="description-textarea" placeholder="请输入书籍简介..."></textarea>
-      <div class="description-footer">
-        <span class="word-count">{{ descriptionContent.length }} 字符</span>
-      </div>
-    </div>
+    <Description v-else-if="viewType === 'description'" :work="work" :work-title="workTitle" />
     
     <!-- 灵感视图 -->
     <div v-else-if="viewType === 'inspiration'" class="inspiration-container">
@@ -1551,95 +1505,6 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-/* 简介视图 */
-.description-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 20px;
-  background: #fff;
-}
-
-.description-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.description-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  margin: 0;
-}
-
-.description-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.status-text {
-  font-size: 12px;
-  color: #2e7d32;
-}
-
-.save-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid #e8e4dc;
-  background: #fff;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  
-  &:hover:not(:disabled) {
-    background: #f0ebe1;
-    border-color: #8b7355;
-  }
-  
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-}
-
-.save-icon {
-  font-size: 16px;
-  color: #666;
-  
-  &.spinning {
-    animation: spin 1s linear infinite;
-  }
-}
-
-.description-textarea {
-  flex: 1;
-  padding: 16px;
-  font-size: 14px;
-  line-height: 1.8;
-  border: 1px solid #e8e4dc;
-  border-radius: 6px;
-  background: #fff;
-  outline: none;
-  resize: none;
-  font-family: inherit;
-  color: #333;
-  
-  &:focus {
-    border-color: #8b7355;
-  }
-}
-
-.description-footer {
-  padding: 12px 0;
-  text-align: right;
 }
 
 /* 灵感视图 */

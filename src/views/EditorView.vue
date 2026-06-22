@@ -416,13 +416,6 @@ watch(() => appState.currentChapterId, () => {
         <button class="tab">筛选</button>
       </div>
       
-      <div class="works-related">
-        <div class="related-header">
-          <span>作品相关</span>
-          <span class="related-icon">▼</span>
-        </div>
-      </div>
-      
       <div class="chapter-tree">
         <div v-if="currentWork?.volumes.length === 0" class="empty-volume">
           <span>暂无卷</span>

@@ -28,9 +28,9 @@ const generateId = () => Math.random().toString(36).substring(2, 11);
 const defaultOutlineItems = (): OutlineItem[] => [
   { id: "root", title: "总纲", content: "", parentId: null, order: 0, expanded: true },
   { id: "book-name", title: "书名", content: props.work?.title || "我有一座桃花源", parentId: "root", order: 0, expanded: false },
-  { id: "book-desc", title: "简介", content: `若问道来无余说，天地都在一掌中。\n\n若问道来无余说，天地都在一掌中。\n吾善养吾浩然之气\n\n世之奇伟瑰怪非常之观常在于险远而人之所罕至焉，故非道心坚不能至也`, parentId: "root", order: 1, expanded: false },
+  { id: "book-desc", title: "简介", content: ``, parentId: "root", order: 1, expanded: false },
   { id: "book-gold", title: "金手指", content: `桃花源\n作用:\n作用:\n1.`, parentId: "root", order: 2, expanded: false },
-  { id: "part1", title: "第一卷 统览", content: "", parentId: null, order: 1, expanded: true },
+  { id: "part1", title: "第一卷", content: "", parentId: null, order: 1, expanded: true },
   { id: "chapter1", title: "第1章 章纲", content: "", parentId: "part1", order: 0, expanded: false },
 ];
 

@@ -137,10 +137,10 @@ const confirmCreateBook = () => {
             <span>全部作品</span>
             <span class="dropdown-arrow">▼</span>
           </div>
-          <div class="section-actions">
+          <!-- <div class="section-actions">
             <span class="action-link">已隐藏</span>
             <span class="action-link">回收站</span>
-          </div>
+          </div> -->
         </div>
         
         <div v-if="appState.works.length === 0" class="empty-state">
@@ -159,7 +159,6 @@ const confirmCreateBook = () => {
               <img :src="getBookCover(index)" :alt="work.title" />
               <div class="work-tags">
                 <span v-if="work.chapters.length > 0" class="tag serial-tag">连载中</span>
-                <span v-if="work.volumes.length > 0" class="tag genre-tag">{{ work.volumes.length }}卷</span>
               </div>
             </div>
             <div class="work-info" @click="openWork(work.id)">
