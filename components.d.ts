@@ -20,6 +20,7 @@ declare module 'vue' {
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
     ElInput: typeof import('element-plus/es')['ElInput']
     InspirationModal: typeof import('./src/components/InspirationModal.vue')['default']
+    Outline: typeof import('./src/components/Outline.vue')['default']
     OutlineModal: typeof import('./src/components/OutlineModal.vue')['default']
     SettingModal: typeof import('./src/components/SettingModal.vue')['default']
     ViewWindow: typeof import('./src/components/ViewWindow.vue')['default']

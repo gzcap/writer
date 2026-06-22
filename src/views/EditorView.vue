@@ -292,7 +292,9 @@ const openViewWindow = async (workId: string, viewType: string) => {
       minimizable: true,
       maximizable: true,
       title: windowTitle,
-      url: url
+      url: url,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
     });
     
     console.log("Window created");
@@ -531,10 +533,10 @@ watch(() => appState.currentChapterId, () => {
             <span>T</span>
             <span class="tool-label">字体</span>
           </button>
-          <button class="tool-btn">
+          <!-- <button class="tool-btn">
             <span>☰</span>
             <span class="tool-label">背景</span>
-          </button>
+          </button> -->
           <div class="toolbar-divider"></div>
           <button class="tool-btn">
             <span>⊛</span>
@@ -561,10 +563,6 @@ watch(() => appState.currentChapterId, () => {
             <span class="tool-label">全屏</span>
           </button>
           <button class="tool-btn">
-            <span>ⓧ</span>
-            <span class="tool-label">闭关</span>
-          </button>
-          <button class="tool-btn">
             <span>🔍</span>
             <span class="tool-label">查找替换</span>
           </button>
@@ -579,12 +577,6 @@ watch(() => appState.currentChapterId, () => {
           <button class="tool-btn">
             <span>↺</span>
             <span class="tool-label">历史</span>
-          </button>
-          <button class="tool-btn primary">
-            <span>发布投稿至阅文</span>
-          </button>
-          <button class="tool-btn">
-            <span>发布至其他平台</span>
           </button>
         </div>
       </header>
@@ -1046,7 +1038,6 @@ watch(() => appState.currentChapterId, () => {
 .menu-item.disabled {
   color: #c0c4cc;
   cursor: not-allowed;
-  pointer-events: none;
 }
 
 /* 拖拽样式 */

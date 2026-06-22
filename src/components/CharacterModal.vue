@@ -255,11 +255,6 @@ const selectCharacter = (char: Character) => {
       
       <div class="character-detail">
         <template v-if="editingCharacter">
-          <div class="detail-tabs">
-            <button class="tab-btn active">角色</button>
-            <button class="tab-btn">提及章节</button>
-          </div>
-          
           <div class="detail-content">
             <div class="character-title-row">
               <input
@@ -535,7 +530,7 @@ const selectCharacter = (char: Character) => {
   background-size: 120px 120px;
   background-repeat: repeat;
   opacity: 0.03;
-  pointer-events: none;
+  /* pointer-events: none; */
   z-index: 0;
 }
 
@@ -600,29 +595,6 @@ const selectCharacter = (char: Character) => {
   flex-direction: column;
   position: relative;
   z-index: 1;
-}
-
-.detail-tabs {
-  display: flex;
-  gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e8e4dc;
-}
-
-.tab-btn {
-  padding: 4px 0;
-  background: transparent;
-  border: none;
-  font-size: 13px;
-  color: #666;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  
-  &.active {
-    color: #333;
-    font-weight: 500;
-    border-bottom-color: #8b7355;
-  }
 }
 
 .detail-content {

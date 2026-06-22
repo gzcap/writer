@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref, watch, onMounted } from "vue";
 import type { Work } from "../types";
 
 const props = defineProps<{
@@ -9,31 +9,92 @@ const props = defineProps<{
 
 const descriptionContent = ref("");
 const saveStatus = ref<"idle" | "saved" | "saving" | "error">("idle");
+const displayStatus = ref<"idle" | "saved" | "saving" | "error">("idle");
+const isLoading = ref(false);
+let statusTimeout: number | null = null;
 
-// 监听 work 变化，加载简介内容
-watch(() => props.work, (newVal) => {
-  if (newVal) {
-    descriptionContent.value = newVal.description || "";
+// 延迟显示状态的时间（毫秒）
+const statusDelay = 1500;
+
+// 获取存储路径
+const getSavePath = () => {
+  return localStorage.getItem("savePath") || "/Users/zmh/Downloads/writer";
+};
+
+// 设置显示状态（带延迟）
+const setDisplayStatus = (status: "idle" | "saved" | "saving" | "error") => {
+  // 清除之前的延迟
+  if (statusTimeout) {
+    clearTimeout(statusTimeout);
   }
-}, { immediate: true });
+  
+  // 如果是正在保存状态，立即显示
+  if (status === "saving") {
+    displayStatus.value = status;
+    return;
+  }
+  
+  // 其他状态延迟显示
+  statusTimeout = window.setTimeout(() => {
+    displayStatus.value = status;
+  }, statusDelay);
+};
 
-// 监听内容变化，自动保存
-watch(descriptionContent, async (newVal) => {
+// 从文件加载简介内容
+const loadDescriptionFromFile = async () => {
   if (!props.work) return;
-  await saveDescriptionToFile();
-});
+  
+  isLoading.value = true;
+  saveStatus.value = "saving";
+  displayStatus.value = "saving"; // 加载状态立即显示
+  
+  try {
+    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
+    const { join } = await import("@tauri-apps/api/path");
+    
+    const savePath = getSavePath();
+    const sanitizeFileName = (name: string) => {
+      return name.replace(/[\\/:*?"<>|]/g, "_").trim();
+    };
+    
+    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const descPath = await join(workFolder, "简介.md");
+    
+    if (await exists(descPath)) {
+      const content = await readTextFile(descPath);
+      descriptionContent.value = content;
+      if (props.work) {
+        props.work.description = content;
+      }
+    } else {
+      if (props.work && props.work.description) {
+        descriptionContent.value = props.work.description;
+      }
+    }
+    
+    saveStatus.value = "saved";
+    setDisplayStatus("saved");
+  } catch (error) {
+    console.error("加载简介失败:", error);
+    saveStatus.value = "error";
+    setDisplayStatus("error");
+  } finally {
+    isLoading.value = false;
+  }
+};
 
 // 保存简介到文件
 const saveDescriptionToFile = async () => {
   if (!props.work) return;
   
   saveStatus.value = "saving";
+  displayStatus.value = "saving"; // 保存状态立即显示
   
   try {
     const { mkdir, writeTextFile } = await import("@tauri-apps/plugin-fs");
     const { join } = await import("@tauri-apps/api/path");
     
-    const savePath = "/Users/zmh/Downloads/writer";
+    const savePath = getSavePath();
     const sanitizeFileName = (name: string) => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
@@ -44,29 +105,72 @@ const saveDescriptionToFile = async () => {
     const descPath = await join(workFolder, "简介.md");
     await writeTextFile(descPath, descriptionContent.value);
     
-    // 更新 work 中的 description
     props.work.description = descriptionContent.value;
     
     saveStatus.value = "saved";
+    setDisplayStatus("saved");
   } catch (error) {
     console.error("保存简介失败:", error);
     saveStatus.value = "error";
+    setDisplayStatus("error");
   }
 };
+
+// 重新同步
+const resyncDescription = async () => {
+  await loadDescriptionFromFile();
+  await saveDescriptionToFile();
+};
+
+// 监听 work 变化
+watch(() => props.work, (newVal) => {
+  if (newVal) {
+    loadDescriptionFromFile();
+  }
+}, { immediate: true });
+
+// 监听内容变化，延迟保存
+watch(descriptionContent, async (newVal) => {
+  if (!props.work || !newVal.trim()) return;
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  await saveDescriptionToFile();
+});
+
+// 组件挂载
+onMounted(() => {
+  loadDescriptionFromFile();
+});
 </script>
 
 <template>
   <div class="description-container">
-    <div class="description-header">
-      <h2 class="description-title">书籍简介</h2>
+    <div class="description-header" data-tauri-drag-region>
+      <!-- macOS红绿灯按钮预留区域 -->
+      <div class="traffic-lights-area"></div>
       <div class="description-status">
-        <span class="status-text">{{ saveStatus === 'saving' ? '正在保存...' : '已保存' }}</span>
-        <button class="save-btn" @click="saveDescriptionToFile" :disabled="saveStatus === 'saving'" title="保存到本地">
-          <span class="save-icon" :class="{ spinning: saveStatus === 'saving' }">⟳</span>
+        <span class="status-text" :class="displayStatus">
+          <span v-if="isLoading">正在加载...</span>
+          <span v-else-if="displayStatus === 'saving'">正在保存...</span>
+          <span v-else-if="displayStatus === 'saved'">已保存</span>
+          <span v-else-if="displayStatus === 'error'">保存失败</span>
+          <span v-else>未保存</span>
+        </span>
+        <button 
+          class="save-btn" 
+          @click="resyncDescription" 
+          :disabled="saveStatus === 'saving' || isLoading"
+          title="重新同步"
+        >
+          <span class="save-icon" :class="{ spinning: saveStatus === 'saving' || isLoading }">⟳</span>
         </button>
       </div>
     </div>
-    <textarea v-model="descriptionContent" class="description-textarea" placeholder="请输入书籍简介..."></textarea>
+    <textarea 
+      v-model="descriptionContent" 
+      class="description-textarea" 
+      placeholder="请输入书籍简介..."
+      :disabled="isLoading"
+    ></textarea>
     <div class="description-footer">
       <span class="word-count">{{ descriptionContent.length }} 字符</span>
     </div>
@@ -79,6 +183,8 @@ const saveDescriptionToFile = async () => {
   flex-direction: column;
   height: 100%;
   padding: 20px;
+  padding-top: 12px; /* 红绿灯需要一点顶部空间 */
+  position: relative; /* 为红绿灯区域提供定位基准 */
 }
 
 .description-header {
@@ -86,13 +192,18 @@ const saveDescriptionToFile = async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  position: relative; /* 为红绿灯区域提供定位基准 */
 }
 
-.description-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-  margin: 0;
+.traffic-lights-area {
+  position: absolute;
+  top: -12px;
+  left: -20px;
+  width: 70px;
+  height: 32px;
+  flex-shrink: 0;
+  /* pointer-events: none; 让点击事件穿透，不影响拖动 */
+  /* macOS红绿灯按钮区域 */
 }
 
 .description-status {
@@ -103,7 +214,22 @@ const saveDescriptionToFile = async () => {
 
 .status-text {
   font-size: 12px;
-  color: #999;
+  
+  &.saving {
+    color: #e65100;
+  }
+  
+  &.saved {
+    color: #2e7d32;
+  }
+  
+  &.error {
+    color: #c62828;
+  }
+  
+  &.idle {
+    color: #999;
+  }
 }
 
 .save-btn {
@@ -116,7 +242,8 @@ const saveDescriptionToFile = async () => {
   background: #f5f3ef;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  /* -webkit-app-region: drag !important; */
 }
 
 .save-btn:hover:not(:disabled) {
@@ -152,11 +279,18 @@ const saveDescriptionToFile = async () => {
   line-height: 1.6;
   resize: none;
   box-sizing: border-box;
+  font-family: inherit;
+  /* -webkit-app-region: drag !important; */
 }
 
 .description-textarea:focus {
   outline: none;
   border-color: #c45c3e;
+}
+
+.description-textarea:disabled {
+  background: #faf8f5;
+  color: #999;
 }
 
 .description-footer {

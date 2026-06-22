@@ -1,30 +1,23 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from "vue";
-import type { Work, OutlineItem, Character, Inspiration } from "../types";
-import { Search, Delete, Plus, ArrowDown, ArrowRight, User, Close } from "@element-plus/icons-vue";
+import type { Work, Character, Inspiration } from "../types";
+import { Search, Delete, Plus, User, Close } from "@element-plus/icons-vue";
 import Description from "./Description.vue";
+import Outline from "./Outline.vue";
 import { ElButton, ElMessageBox, ElMessage } from "element-plus";
 
 // 从 URL 参数获取数据
 const urlParams = new URLSearchParams(window.location.hash.slice(1));
 const workId = ref(urlParams.get("workId") || "");
-const viewType = ref(urlParams.get("viewType") || "outline");
+const viewType = ref(urlParams.get("viewType") || "character");
 const workTitle = ref(decodeURIComponent(urlParams.get("title") || ""));
 
 // 数据状态
 const work = ref<Work | null>(null);
 const saveStatus = ref<"idle" | "saved" | "saving" | "error">("idle");
 const saveTimeout = ref<number | null>(null);
-const outlineItems = ref<OutlineItem[]>([]);
 const characters = ref<Character[]>([]);
 const inspirations = ref<Inspiration[]>([]);
-
-// 大纲相关
-const selectedItemId = ref<string | null>(null);
-const outlineTitle = ref("");
-const outlineContent = ref("");
-const searchQuery = ref("");
-const expandedItems = ref<Set<string>>(new Set(["outline-root"]));
 
 // 角色相关
 const selectedCharacter = ref<Character | null>(null);
@@ -57,429 +50,27 @@ const groupedCharacters = computed(() => {
   return groups;
 });
 
-// 获取大纲子项
-const getChildren = (parentId: string | null) => {
-  // 如果是outline-root，获取所有章纲（parentId为outline-root的项）
-  if (parentId === "outline-root") {
-    return outlineItems.value.filter((item: OutlineItem) => item.parentId === "outline-root").sort((a: OutlineItem, b: OutlineItem) => (a.order || 0) - (b.order || 0));
-  }
-  return [];
-};
-
-// 切换展开状态
-const toggleExpand = (item: OutlineItem) => {
-  if (expandedItems.value.has(item.id)) {
-    expandedItems.value.delete(item.id);
-  } else {
-    expandedItems.value.add(item.id);
-  }
-};
-
-// 选择大纲项
-const selectOutlineItem = (item: OutlineItem) => {
-  selectedItemId.value = item.id;
-  outlineTitle.value = item.title;
-  outlineContent.value = item.content;
-};
-
-// 选择根大纲
-const selectRootOutline = () => {
-  selectedItemId.value = "outline-root";
-  outlineTitle.value = "大纲";
-  outlineContent.value = "";
-};
-
-// 格式化文本（用于富文本模式下的Markdown格式化）
-const formatText = (type: string) => {
-  if (selectedItemId.value === "outline-root") return;
-  
-  const textarea = document.querySelector('.rich-editor') as HTMLTextAreaElement;
-  if (!textarea) return;
-  
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const selectedText = outlineContent.value.substring(start, end);
-  
-  let formattedText = "";
-  let cursorOffset = 0;
-  
-  switch (type) {
-    case 'bold':
-      formattedText = `**${selectedText || "粗体文字"}**`;
-      cursorOffset = selectedText ? formattedText.length : 2;
-      break;
-    case 'italic':
-      formattedText = `*${selectedText || "斜体文字"}*`;
-      cursorOffset = selectedText ? formattedText.length : 1;
-      break;
-    case 'underline':
-      formattedText = `__${selectedText || "下划线文字"}__`;
-      cursorOffset = selectedText ? formattedText.length : 2;
-      break;
-    case 'h1':
-      formattedText = `# ${selectedText || "一级标题"}`;
-      cursorOffset = formattedText.length;
-      break;
-    case 'h2':
-      formattedText = `## ${selectedText || "二级标题"}`;
-      cursorOffset = formattedText.length;
-      break;
-    case 'h3':
-      formattedText = `### ${selectedText || "三级标题"}`;
-      cursorOffset = formattedText.length;
-      break;
-    case 'ul':
-      formattedText = `- ${selectedText || "列表项"}`;
-      cursorOffset = formattedText.length;
-      break;
-    case 'ol':
-      formattedText = `1. ${selectedText || "列表项"}`;
-      cursorOffset = formattedText.length;
-      break;
-    case 'quote':
-      formattedText = `> ${selectedText || "引用文字"}`;
-      cursorOffset = formattedText.length;
-      break;
-    default:
-      return;
-  }
-  
-  outlineContent.value = outlineContent.value.substring(0, start) + formattedText + outlineContent.value.substring(end);
-  
-  // 更新选中位置
-  setTimeout(() => {
-    textarea.focus();
-    textarea.setSelectionRange(start + cursorOffset, start + cursorOffset);
-  }, 0);
-};
-
-// 新建大纲项
-const addOutlineItem = () => {
-  const parentId = selectedItemId.value || "outline-root";
-  const newItem: OutlineItem = {
-    id: Math.random().toString(36).substring(2, 11),
-    title: "新章纲",
-    content: "",
-    parentId: parentId,
-    order: outlineItems.value.filter((i: OutlineItem) => i.parentId === parentId).length,
-    expanded: false,
-  };
-  outlineItems.value.push(newItem);
-  selectedItemId.value = newItem.id;
-  outlineTitle.value = newItem.title;
-  outlineContent.value = newItem.content;
-  
-  // 自动展开父节点
-  if (parentId !== "outline-root") {
-    expandedItems.value.add(parentId);
-  }
-  
-  // 保存到本地
-  saveOutlineToFile();
-};
-
-// 删除大纲项（带确认）
-const deleteOutlineItem = async (itemId: string) => {
-  const item = outlineItems.value.find(i => i.id === itemId);
-  if (!item) return;
-  
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除 "${item.title}" 吗？删除后将无法恢复。`,
-      '删除确认',
-      {
-        confirmButtonText: '确定删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-      }
-    );
-    
-    // 删除选中项及其子项
-    const idsToDelete = new Set<string>();
-    const collectIds = (id: string) => {
-      idsToDelete.add(id);
-      outlineItems.value.filter(i => i.parentId === id).forEach(child => collectIds(child.id));
-    };
-    collectIds(itemId);
-    
-    outlineItems.value = outlineItems.value.filter(i => !idsToDelete.has(i.id));
-    
-    if (selectedItemId.value && idsToDelete.has(selectedItemId.value)) {
-      selectedItemId.value = null;
-      outlineTitle.value = "";
-      outlineContent.value = "";
-    }
-    
-    ElMessage.success('删除成功');
-    saveOutlineToFile();
-  } catch {
-    // 用户取消删除
-  }
-};
-
-// 保存大纲到文件
-const saveOutlineToFile = async () => {
-  if (!workId.value) return;
-  
-  saveStatus.value = "saving";
-  
-  try {
-    const { mkdir, writeTextFile } = await import("@tauri-apps/plugin-fs");
-    const { join } = await import("@tauri-apps/api/path");
-    
-    const savePath = "/Users/zmh/Downloads/writer";
-    const sanitizeFileName = (name: string) => {
-      return name.replace(/[\\/:*?"<>|]/g, "_").trim();
-    };
-    
-    const workFolder = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"));
-    
-    // 确保工作目录存在
-    await mkdir(workFolder, { recursive: true });
-    
-    // 保存大纲文件
-    const outlineFolder = await join(workFolder, "大纲");
-    await mkdir(outlineFolder, { recursive: true });
-    
-    // 将大纲数据转换为 Markdown 格式保存
-    const generateMarkdown = (items: OutlineItem[], parentId: string | null, level: number = 0): string => {
-      let md = "";
-      const children = items.filter(i => i.parentId === parentId).sort((a, b) => (a.order || 0) - (b.order || 0));
-      
-      children.forEach(item => {
-        // 跳过根节点"大纲"，只保存章纲内容
-        if (item.id === "outline-root") return;
-        
-        const prefix = "#".repeat(Math.min(level + 1, 6));
-        md += `${prefix} ${item.title}\n\n`;
-        if (item.content) {
-          // 将内容中的标题格式转义，避免被误解析
-          const escapedContent = item.content.replace(/^#{1,6}\s/gm, '\\#');
-          md += `${escapedContent}\n\n`;
-        }
-        md += generateMarkdown(items, item.id, level + 1);
-      });
-      
-      return md;
-    };
-    
-    const outlinePath = await join(outlineFolder, "大纲.md");
-    // 从根节点开始生成，但跳过根节点本身
-    const outlineMd = generateMarkdown(outlineItems.value, "outline-root", 0);
-    await writeTextFile(outlinePath, outlineMd);
-    
-    saveStatus.value = "saved";
-    console.log("大纲保存成功");
-  } catch (error) {
-    console.error("保存大纲失败:", error);
-    saveStatus.value = "error";
-  }
-};
-
-// 从文件加载大纲
-const loadOutlineFromFile = async () => {
-  if (!workId.value) return;
-  
-  try {
-    const { readTextFile, exists } = await import("@tauri-apps/plugin-fs");
-    const { join } = await import("@tauri-apps/api/path");
-    
-    const savePath = "/Users/zmh/Downloads/writer";
-    const sanitizeFileName = (name: string) => {
-      return name.replace(/[\\/:*?"<>|]/g, "_").trim();
-    };
-    
-    const workFolder = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"));
-    const outlineFolder = await join(workFolder, "大纲");
-    const outlinePath = await join(outlineFolder, "大纲.md");
-    
-    // 检查大纲文件是否存在
-    if (await exists(outlinePath)) {
-      const content = await readTextFile(outlinePath);
-      // 解析 Markdown 为大纲结构
-      outlineItems.value = parseMarkdownToOutline(content);
-    } else {
-      // 创建默认的大纲结构
-      outlineItems.value = createDefaultOutline();
-      // 保存默认大纲
-      await saveOutlineToFile();
-    }
-    
-    // 默认选中第一个大纲项
-    if (outlineItems.value.length > 0) {
-      const firstItem = outlineItems.value.find(i => i.parentId === "outline-root");
-      if (firstItem) {
-        selectOutlineItem(firstItem);
-      }
-    }
-  } catch (error) {
-    console.error("加载大纲失败:", error);
-    outlineItems.value = createDefaultOutline();
-  }
-};
-
-// 解析 Markdown 为大纲结构
-const parseMarkdownToOutline = (md: string): OutlineItem[] => {
-  const items: OutlineItem[] = [];
-  
-  // 添加根节点
-  items.push({
-    id: "outline-root",
-    title: "大纲",
-    content: "",
-    parentId: null,
-    order: 0,
-    expanded: true,
-  });
-  
-  const lines = md.split('\n');
-  let currentItem: OutlineItem | null = null;
-  let contentBuffer: string[] = [];
-  
-  lines.forEach((line) => {
-    // 匹配标题行（非转义的）
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    const isEscaped = line.match(/^\\#{1,6}\s+/);
-    
-    if (match && !isEscaped) {
-      // 遇到新标题时，先保存上一个项的内容
-      if (currentItem && contentBuffer.length > 0) {
-        // 将转义的标题格式还原
-        currentItem.content = contentBuffer.join('\n').replace(/^\\#{1,6}\s/gm, '#');
-        contentBuffer = [];
-      }
-      
-      // 创建新项
-      currentItem = {
-        id: Math.random().toString(36).substring(2, 11),
-        title: match[2].trim(),
-        content: "",
-        parentId: "outline-root",
-        order: items.filter(i => i.parentId === "outline-root").length,
-        expanded: false,
-      };
-      
-      items.push(currentItem);
-    } else if (currentItem && line.trim()) {
-      // 非标题行，作为内容收集
-      contentBuffer.push(line);
-    }
-  });
-  
-  // 保存最后一项的内容
-  if (currentItem && contentBuffer.length > 0) {
-    // 将转义的标题格式还原
-    (currentItem as OutlineItem).content = contentBuffer.join('\n').replace(/^\\#{1,6}\s/gm, '#').trim();
-  }
-  
-  return items;
-};
-
-// 创建默认大纲结构
-const createDefaultOutline = (): OutlineItem[] => {
-  return [
-    {
-      id: "outline-root",
-      title: "大纲",
-      content: "",
-      parentId: null,
-      order: 0,
-      expanded: true,
-    },
-  ];
-};
-
-// 监听大纲内容变化，自动保存
-watch([outlineTitle, outlineContent], () => {
-  // 更新内存中的数据
-  if (selectedItemId.value) {
-    const item = outlineItems.value.find(i => i.id === selectedItemId.value);
-    if (item) {
-      item.title = outlineTitle.value;
-      item.content = outlineContent.value;
-    }
-  }
-  
-  // 立即显示保存状态
-  saveStatus.value = "saving";
-  
-  // 防抖保存
-  if (saveTimeout.value) {
-    clearTimeout(saveTimeout.value);
-  }
-  saveTimeout.value = window.setTimeout(() => {
-    saveOutlineToFile();
-  }, 2000);
-});
-
-// 角色相关函数
+// 角色相关方法
 const addCharacter = () => {
   if (!work.value) return;
-  const newCharacter: Character = {
+  
+  const newChar: Character = {
     id: Math.random().toString(36).substring(2, 11),
-    name: "新角色",
+    name: "",
     role: "supporting",
     avatar: "",
-    description: "",
-    personality: "",
     background: "",
+    personality: "",
+    description: "",
     other: "",
-    color: colors[work.value.characters.length % colors.length],
+    color: colors[characters.value.length % colors.length],
     updatedAt: Date.now(),
   };
-  work.value.characters.push(newCharacter);
-  characters.value = work.value.characters;
-  editingCharacter.value = newCharacter;
-  selectedCharacter.value = newCharacter;
-  saveCharactersToFile();
-};
-
-const deleteCharacter = async (charId: string) => {
-  const char = characters.value.find(c => c.id === charId);
-  if (!char) return;
   
-  try {
-    await ElMessageBox.confirm(
-      `确定要删除角色 "${char.name}" 吗？`,
-      '删除确认',
-      {
-        confirmButtonText: '确定删除',
-        cancelButtonText: '取消',
-        type: 'warning',
-      }
-    );
-    
-    // 删除本地角色文件
-    try {
-      const { join } = await import("@tauri-apps/api/path");
-      const { remove, exists } = await import("@tauri-apps/plugin-fs");
-      
-      const savePath = "/Users/zmh/Downloads/writer";
-      const sanitizeFileName = (name: string) => {
-        return name.replace(/[\\/:*?"<>|]/g, "_").trim();
-      };
-      
-      const charPath = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"), "角色", `${sanitizeFileName(char.name || "未命名角色")}.md`);
-      if (await exists(charPath)) {
-        await remove(charPath);
-        console.log(`已删除角色文件: ${charPath}`);
-      }
-    } catch (error) {
-      console.error('删除角色文件失败:', error);
-    }
-    
-    characters.value = characters.value.filter(c => c.id !== charId);
-    if (selectedCharacter.value?.id === charId) {
-      selectedCharacter.value = null;
-    }
-    if (editingCharacter.value?.id === charId) {
-      editingCharacter.value = null;
-    }
-    
-    ElMessage.success('删除成功');
-  } catch {
-    // 用户取消
-  }
+  work.value.characters.push(newChar);
+  characters.value = work.value.characters;
+  editingCharacter.value = newChar;
+  selectedCharacter.value = newChar;
 };
 
 const selectCharacter = (char: Character) => {
@@ -487,9 +78,38 @@ const selectCharacter = (char: Character) => {
   editingCharacter.value = char;
 };
 
+const deleteCharacter = async (charId: string) => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要删除该角色吗？删除后将无法恢复。',
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    );
+    
+    if (work.value) {
+      work.value.characters = work.value.characters.filter(c => c.id !== charId);
+      characters.value = work.value.characters;
+    }
+    
+    if (selectedCharacter.value?.id === charId) {
+      selectedCharacter.value = null;
+      editingCharacter.value = null;
+    }
+    
+    ElMessage.success('删除成功');
+    saveCharactersToFile();
+  } catch {
+    // 用户取消
+  }
+};
+
 // 保存角色到文件
 const saveCharactersToFile = async () => {
-  if (!workId.value) return;
+  if (!work.value) return;
   
   saveStatus.value = "saving";
   
@@ -506,7 +126,6 @@ const saveCharactersToFile = async () => {
     const charsFolder = await join(workFolder, "角色");
     await mkdir(charsFolder, { recursive: true });
     
-    // 保存每个角色到单独的文件
     for (const char of characters.value) {
       const charPath = await join(charsFolder, `${sanitizeFileName(char.name || "未命名角色")}.md`);
       const charContent = `# ${char.name || "未命名角色"}\n\n角色类型: ${getRoleName(char.role)}\n\n背景:\n${char.background || ""}\n\n性格:\n${char.personality || ""}\n\n外貌:\n${char.description || ""}\n\n其他:\n${char.other || ""}`;
@@ -584,7 +203,7 @@ const deleteInspiration = async (inspId: string) => {
 
 // 保存灵感到文件
 const saveInspirationsToFile = async () => {
-  if (!workId.value) return;
+  if (!work.value) return;
   
   saveStatus.value = "saving";
   
@@ -622,12 +241,8 @@ const closeWindow = () => {
 // 重试保存
 const retrySave = async () => {
   saveStatus.value = "saving";
-  if (viewType.value === "outline") {
-    await saveOutlineToFile();
-  } else if (viewType.value === "character") {
+  if (viewType.value === "character") {
     await saveCharactersToFile();
-  } else if (viewType.value === "description") {
-    await saveDescriptionToFile();
   } else if (viewType.value === "inspiration") {
     await saveInspirationsToFile();
   }
@@ -651,9 +266,7 @@ onMounted(async () => {
   };
   
   // 根据视图类型加载数据
-  if (viewType.value === "outline") {
-    await loadOutlineFromFile();
-  } else if (viewType.value === "character" && work.value) {
+  if (viewType.value === "character" && work.value) {
     characters.value = work.value.characters;
   } else if (viewType.value === "inspiration" && work.value) {
     inspirations.value = work.value.inspirations;
@@ -690,16 +303,9 @@ onMounted(async () => {
 <template>
   <div class="view-window">
     <!-- 标题栏 -->
-    <div class="view-header">
-      <div class="header-left">
-        <span class="header-icon">
-          <span v-if="viewType === 'outline'">📋</span>
-          <span v-else-if="viewType === 'character'">👤</span>
-          <span v-else-if="viewType === 'description'">📝</span>
-          <span v-else>💡</span>
-        </span>
-        <span class="header-title">{{ viewType === 'outline' ? '大纲' : viewType === 'character' ? '角色' : viewType === 'description' ? '简介' : '灵感' }}</span>
-      </div>
+    <div class="view-header" data-tauri-drag-region>
+      <!-- macOS红绿灯按钮预留区域 -->
+      <div class="traffic-lights-area"></div>
       <div class="header-right">
         <div v-if="saveStatus !== 'idle' && viewType !== 'description'" class="save-status" :class="saveStatus">
           <span class="status-icon">
@@ -722,78 +328,8 @@ onMounted(async () => {
       </div>
     </div>
     
-    <!-- 大纲视图 -->
-    <div v-if="viewType === 'outline'" class="outline-container">
-      <div class="outline-sidebar">
-        <div class="search-box">
-          <Search class="search-icon" />
-          <input v-model="searchQuery" type="text" placeholder="搜索大纲" class="search-input" />
-        </div>
-        <div class="outline-tree">
-          <!-- 总纲：只有一个默认"大纲"文件夹 -->
-          <div class="tree-item root-item" :class="{ active: selectedItemId === 'outline-root' }" @click="selectRootOutline">
-            <span class="folder-icon">📁</span>
-            <span class="item-title">大纲</span>
-          </div>
-          <!-- 章纲列表 -->
-          <div class="chapter-list">
-            <template v-for="item in getChildren('outline-root')" :key="item.id">
-              <div class="tree-item chapter-item" :class="{ active: selectedItemId === item.id }" @click="selectOutlineItem(item)">
-                <span class="expand-icon" @click.stop="toggleExpand(item)">
-                  <ArrowDown v-if="expandedItems.has(item.id)" />
-                  <ArrowRight v-else />
-                </span>
-                <span class="item-title">{{ item.title }}</span>
-                <button class="delete-btn" @click.stop="deleteOutlineItem(item.id)" title="删除">×</button>
-              </div>
-            </template>
-          </div>
-        </div>
-        <div class="sidebar-footer">
-          <ElButton :icon="Plus" size="small" class="new-btn" @click="addOutlineItem">新增章纲</ElButton>
-        </div>
-      </div>
-      
-      <div class="outline-detail">
-        <input v-model="outlineTitle" class="detail-title" placeholder="章纲标题" :disabled="selectedItemId === 'outline-root'" />
-        <div class="rich-editor-container">
-          <!-- 富文本工具栏 -->
-          <div class="editor-toolbar">
-            <button class="toolbar-btn" @click="formatText('bold')" title="粗体"><b>B</b></button>
-            <button class="toolbar-btn" @click="formatText('italic')" title="斜体"><i>I</i></button>
-            <button class="toolbar-btn" @click="formatText('underline')" title="下划线"><u>U</u></button>
-            <span class="toolbar-divider"></span>
-            <button class="toolbar-btn" @click="formatText('h1')" title="标题1">H1</button>
-            <button class="toolbar-btn" @click="formatText('h2')" title="标题2">H2</button>
-            <button class="toolbar-btn" @click="formatText('h3')" title="标题3">H3</button>
-            <span class="toolbar-divider"></span>
-            <button class="toolbar-btn" @click="formatText('ul')" title="无序列表">•</button>
-            <button class="toolbar-btn" @click="formatText('ol')" title="有序列表">1.</button>
-            <span class="toolbar-divider"></span>
-            <button class="toolbar-btn" @click="formatText('quote')" title="引用">"</button>
-          </div>
-          <textarea 
-            v-model="outlineContent" 
-            class="rich-editor" 
-            :placeholder="selectedItemId === 'outline-root' ? '点击左侧【大纲】选择一个章纲进行编辑，或点击【新增章纲】创建新的章纲...' : '在这里输入章纲内容...'"
-            :disabled="selectedItemId === 'outline-root'"
-          ></textarea>
-        </div>
-        <div class="detail-footer">
-          <span class="word-count">{{ outlineContent.length }} 字符</span>
-          <ElButton 
-            :icon="Delete" 
-            size="small" 
-            type="danger" 
-            v-if="selectedItemId && selectedItemId !== 'outline-root'" 
-            @click="deleteOutlineItem(selectedItemId)"
-          >删除</ElButton>
-        </div>
-      </div>
-    </div>
-    
     <!-- 角色视图 -->
-    <div v-else-if="viewType === 'character'" class="character-container">
+    <div v-if="viewType === 'character'" class="character-container">
       <div class="character-sidebar">
         <div v-for="group in groupedCharacters" :key="group.role" class="character-group">
           <div class="group-header">
@@ -817,9 +353,6 @@ onMounted(async () => {
       
       <div class="character-detail">
         <template v-if="editingCharacter">
-          <div class="detail-tabs">
-            <button class="tab-btn active">角色</button>
-          </div>
           <div class="detail-content">
             <div class="character-title-row">
               <input v-model="editingCharacter.name" class="character-name-input" placeholder="角色名称" />
@@ -872,6 +405,9 @@ onMounted(async () => {
     <!-- 简介视图 -->
     <Description v-else-if="viewType === 'description'" :work="work" :work-title="workTitle" />
     
+    <!-- 大纲视图 -->
+    <Outline v-else-if="viewType === 'outline'" :work="work" :work-title="workTitle" @close="closeWindow" />
+    
     <!-- 灵感视图 -->
     <div v-else-if="viewType === 'inspiration'" class="inspiration-container">
       <div class="inspiration-sidebar">
@@ -901,6 +437,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  position: relative; /* 为红绿灯区域提供定位基准 */
   background: #fdf5e6;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
@@ -910,19 +447,23 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: linear-gradient(180deg, #f8f4eb 0%, #f5efe6 100%);
-  border-bottom: 1px solid #e8e4dc;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding-top: 8px; /* 红绿灯需要一点顶部空间 */
+  position: relative; /* 为红绿灯区域提供定位基准 */
+  /* padding: 12px 16px; */
+  /* background: linear-gradient(180deg, #f8f4eb 0%, #f5efe6 100%); */
+  /* border-bottom: 1px solid #e8e4dc; */
+  /* box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); */
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-icon {
-  font-size: 18px;
+.traffic-lights-area {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  width: 70px;
+  height: 32px;
+  flex-shrink: 0;
+  /* pointer-events: none; 让点击事件穿透，不影响拖动 */
+  /* macOS红绿灯按钮区域 */
 }
 
 .header-title {
@@ -934,14 +475,13 @@ onMounted(async () => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
 }
 
 .save-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  /* padding: 4px 10px; */
   border-radius: 20px;
   font-size: 12px;
   
@@ -973,6 +513,7 @@ onMounted(async () => {
   justify-content: center;
   margin-left: 4px;
   transition: all 0.2s;
+  /* -webkit-app-region: drag !important; */
   
   &:hover {
     background: #c62828;
@@ -998,301 +539,29 @@ onMounted(async () => {
 }
 
 .close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   border: none;
   background: transparent;
   border-radius: 4px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  /* -webkit-app-region: drag !important;  */
 }
 
 .close-btn:hover {
-  background: #e8e4dc;
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .close-icon {
-  font-size: 16px;
-  color: #666;
-}
-
-/* 大纲视图 */
-.outline-container {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-.outline-sidebar {
-  width: 250px;
-  border-right: 1px solid #e8e4dc;
-  display: flex;
-  flex-direction: column;
-  background: #faf7f0;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: #fff;
-  border-bottom: 1px solid #e8e4dc;
-}
-
-.search-icon {
-  font-size: 14px;
-  color: #999;
-  flex-shrink: 0;
-}
-
-.search-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  background: transparent;
-}
-
-.outline-tree {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.tree-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 10px;
-  cursor: pointer;
-  border-radius: 4px;
-  margin-bottom: 2px;
-  transition: all 0.2s;
-  
-  &:hover {
-    background: #f0ebe1;
-  }
-  
-  &.active {
-    background: #ffe4d4;
-    color: #8b4513;
-    font-weight: 500;
-  }
-  
-  &.child {
-    padding-left: 24px;
-  }
-}
-
-.root-item {
-  background: #f5f1e8;
-  font-weight: 600;
-  margin-bottom: 8px;
-  border-bottom: 1px solid #e8e4dc;
-  padding: 12px 10px;
-  
-  &:hover {
-    background: #efe9de;
-  }
-  
-  &.active {
-    background: #ffe4d4;
-  }
-}
-
-.folder-icon {
-  margin-right: 8px;
-  font-size: 14px;
-}
-
-.chapter-list {
-  margin-left: 8px;
-}
-
-.chapter-item {
-  padding-left: 24px;
-  position: relative;
-  
-  .delete-btn {
-    display: none;
-    position: absolute;
-    right: 8px;
-    width: 18px;
-    height: 18px;
-    border: none;
-    background: #ff4d4d;
-    color: white;
-    border-radius: 50%;
-    font-size: 12px;
-    line-height: 18px;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    
-    &:hover {
-      background: #ff2222;
-    }
-  }
-  
-  &:hover .delete-btn {
-    display: block;
-  }
-}
-
-.expand-icon {
-  width: 14px;
-  height: 14px;
-  color: #999;
-  margin-right: 6px;
-  flex-shrink: 0;
-}
-
-.item-title {
-  font-size: 13px;
-  color: #333;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tree-children {
-  margin-left: 8px;
-}
-
-.sidebar-footer {
-  padding: 10px;
-  border-top: 1px solid #e8e4dc;
-}
-
-.new-btn {
-  width: 100%;
-  background: #4caf50;
-  border: none;
-  color: white;
-  font-weight: 500;
-  
-  &:hover {
-    background: #45a049;
-  }
-}
-
-.outline-detail {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 20px;
-  background: #fff;
-}
-
-.detail-title {
-  padding: 10px;
   font-size: 18px;
-  font-weight: 600;
-  border: none;
-  background: transparent;
-  border-bottom: 2px solid #e8e4dc;
-  outline: none;
-  margin-bottom: 16px;
-  color: #333;
-  
-  &:focus {
-    border-bottom-color: #8b7355;
-  }
-  
-  &:disabled {
-    background: #faf7f0;
-    cursor: not-allowed;
-    color: #999;
-  }
-}
-
-.rich-editor-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #e8e4dc;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #fff;
-}
-
-.editor-toolbar {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  background: #faf7f0;
-  border-bottom: 1px solid #e8e4dc;
-  gap: 4px;
-}
-
-.toolbar-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid #e8e4dc;
-  background: #fff;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
   color: #666;
-  transition: all 0.2s;
-  
-  &:hover {
-    background: #f0ebe1;
-    border-color: #8b7355;
-  }
 }
 
-.toolbar-divider {
-  width: 1px;
-  height: 20px;
-  background: #e8e4dc;
-  margin: 0 4px;
-}
-
-.rich-editor {
-  flex: 1;
-  padding: 16px;
-  font-size: 14px;
-  line-height: 1.8;
-  border: none;
-  outline: none;
-  resize: none;
-  font-family: inherit;
-  color: #333;
-  
-  &:focus {
-    background: #fafafa;
-  }
-  
-  &:disabled {
-    background: #faf7f0;
-    cursor: not-allowed;
-    color: #999;
-  }
-}
-
-.detail-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 0;
-  margin-top: 12px;
-  border-top: 1px solid #e8e4dc;
-}
-
-.word-count {
-  font-size: 12px;
-  color: #999;
-  font-family: "Monaco", "Menlo", monospace;
-}
-
-/* 角色视图 */
+/* 角色视图样式 */
 .character-container {
   flex: 1;
   display: flex;
@@ -1300,10 +569,11 @@ onMounted(async () => {
 }
 
 .character-sidebar {
-  width: 200px;
+  width: 220px;
   border-right: 1px solid #e8e4dc;
-  overflow-y: auto;
-  background: #faf7f0;
+  background: #faf8f5;
+  display: flex;
+  flex-direction: column;
 }
 
 .character-group {
@@ -1314,37 +584,35 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
-  font-size: 11px;
-  color: #999;
-  background: #f5f1e8;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
 }
 
 .group-icon {
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .group-list {
-  padding: 4px 0;
+  padding: 0 8px;
 }
 
 .group-item {
   padding: 8px 12px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
-  color: #666;
-  transition: all 0.2s;
+  transition: background 0.2s;
+  /* -webkit-app-region: drag !important; */
   
   &:hover {
-    background: #f5f1e8;
+    background: rgba(0, 0, 0, 0.03);
   }
   
   &.active {
-    background: #f0ebe1;
-    color: #333;
-    font-weight: 500;
+    background: rgba(196, 92, 62, 0.1);
+    color: #c45c3e;
   }
 }
 
@@ -1359,101 +627,69 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #fff;
-}
-
-.detail-tabs {
-  display: flex;
-  gap: 16px;
-  padding: 12px 20px;
-  border-bottom: 1px solid #e8e4dc;
-}
-
-.tab-btn {
-  padding: 6px 0;
-  background: transparent;
-  border: none;
-  font-size: 13px;
-  color: #666;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-  
-  &.active {
-    color: #333;
-    font-weight: 500;
-    border-bottom-color: #8b7355;
-  }
-}
-
-.detail-content {
-  flex: 1;
   padding: 20px;
   overflow-y: auto;
 }
 
+.detail-content {
+  flex: 1;
+}
+
 .character-title-row {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .character-name-input {
   flex: 1;
   padding: 10px 12px;
-  font-size: 18px;
+  border: 1px solid #e8e4dc;
+  border-radius: 4px;
+  font-size: 16px;
   font-weight: 600;
-  border: none;
-  background: transparent;
+  /* -webkit-app-region: drag !important; */
+}
+
+.character-name-input:focus {
   outline: none;
-  color: #333;
-  border-bottom: 2px solid #e8e4dc;
-  
-  &:focus {
-    border-bottom-color: #8b7355;
-  }
+  border-color: #c45c3e;
 }
 
 .role-select {
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid #ddd;
+  padding: 10px 12px;
+  border: 1px solid #e8e4dc;
   border-radius: 4px;
-  background: #fff;
-  outline: none;
+  font-size: 13px;
+  background: white;
   cursor: pointer;
+}
+
+.role-select:focus {
+  outline: none;
+  border-color: #c45c3e;
 }
 
 .avatar-section {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .avatar-placeholder {
-  width: 100px;
-  height: 100px;
-  border-radius: 8px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
   font-size: 32px;
-  cursor: pointer;
-  transition: transform 0.2s;
-  
-  &:hover {
-    transform: scale(1.05);
-  }
+  color: white;
 }
 
 .avatar-img {
   width: 100%;
   height: 100%;
+  border-radius: 50%;
   object-fit: cover;
-  border-radius: 8px;
 }
 
 .info-section {
@@ -1465,32 +701,44 @@ onMounted(async () => {
 .info-item {
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
 .info-label {
-  font-size: 12px;
-  color: #999;
-  margin-bottom: 6px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
+  color: #666;
 }
 
 .info-textarea {
-  width: 100%;
-  min-height: 80px;
-  padding: 10px;
-  font-size: 14px;
-  line-height: 1.6;
+  padding: 10px 12px;
   border: 1px solid #e8e4dc;
   border-radius: 4px;
-  background: #fff;
-  outline: none;
+  font-size: 13px;
+  line-height: 1.6;
   resize: vertical;
+  min-height: 80px;
   font-family: inherit;
-  transition: border-color 0.2s;
-  
-  &:focus {
-    border-color: #8b7355;
-  }
+  /* -webkit-app-region: drag !important; */
+}
+
+.info-textarea:focus {
+  outline: none;
+  border-color: #c45c3e;
+}
+
+.detail-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e8e4dc;
+}
+
+.word-count {
+  font-size: 12px;
+  color: #999;
 }
 
 .footer-actions {
@@ -1499,46 +747,94 @@ onMounted(async () => {
 }
 
 .character-toolbar {
-  padding: 12px 16px;
-  background: #faf7f0;
-  border-top: 1px solid #e8e4dc;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 12px 16px;
+  background: #faf8f5;
+  border-top: 1px solid #e8e4dc;
 }
 
-/* 灵感视图 */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #e8e4dc;
+  border-radius: 4px;
+  width: 180px;
+}
+
+.search-icon {
+  font-size: 14px;
+  color: #999;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  outline: none;
+}
+
+.new-btn {
+  background: #c45c3e;
+  color: white;
+  border: none;
+  /* -webkit-app-region: drag !important; */
+  
+  &:hover {
+    background: #b34d32;
+  }
+}
+
+/* 灵感视图样式 */
 .inspiration-container {
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .inspiration-sidebar {
-  width: 220px;
-  border-right: 1px solid #e8e4dc;
+  width: 100%;
+  max-height: 200px;
+  border-bottom: 1px solid #e8e4dc;
+  background: #faf8f5;
   overflow-y: auto;
-  background: #faf7f0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  align-content: flex-start;
 }
 
 .inspiration-item {
-  padding: 12px;
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #e8e4dc;
+  border-radius: 20px;
   cursor: pointer;
-  border-bottom: 1px solid #e8e4dc;
+  font-size: 13px;
   transition: all 0.2s;
+  /* -webkit-app-region: drag !important; */
   
   &:hover {
-    background: #f5f1e8;
+    border-color: #c45c3e;
+    color: #c45c3e;
   }
   
   &.active {
-    background: #ffe4d4;
+    background: #c45c3e;
+    color: white;
+    border-color: #c45c3e;
   }
-}
-
-.inspiration-title {
-  font-size: 13px;
-  color: #333;
 }
 
 .inspiration-detail {
@@ -1546,25 +842,48 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   padding: 20px;
-  background: #fff;
+}
+
+.detail-title {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e8e4dc;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.detail-title:focus {
+  outline: none;
+  border-color: #c45c3e;
 }
 
 .detail-content {
   flex: 1;
+  width: 100%;
   padding: 12px;
-  font-size: 14px;
-  line-height: 1.6;
   border: 1px solid #e8e4dc;
   border-radius: 4px;
-  background: #fff;
-  outline: none;
+  font-size: 14px;
+  line-height: 1.6;
   resize: none;
+  box-sizing: border-box;
   font-family: inherit;
+  /* -webkit-app-region: drag !important; */
+}
+
+.detail-content:focus {
+  outline: none;
+  border-color: #c45c3e;
 }
 
 .inspiration-toolbar {
+  display: flex;
+  justify-content: flex-end;
   padding: 12px 16px;
-  background: #faf7f0;
+  background: #faf8f5;
   border-top: 1px solid #e8e4dc;
 }
 </style>
