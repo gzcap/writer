@@ -160,8 +160,13 @@ export interface Tab {
   /** 标签页标题 */
   title: string;
   /** 视图类型 */
-  viewType?: string;
+  viewType?: TabViewType;
 }
+
+/**
+ * 视图类型
+ */
+export type TabViewType = 'editor' | 'outline' | 'character' | 'description' | 'inspiration';
 
 /**
  * 应用状态接口

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { inject, ref } from "vue";
-import { Plus, Folder, Document, Bell, More, User, DataAnalysis } from "@element-plus/icons-vue";
-import type { Work, AppState } from "../App.vue";
+import { Plus, Document, More } from "@element-plus/icons-vue";
+import type { Work, AppState } from "../types";
 
 const appState = inject<AppState>("appState")!;
-const createNewWork = inject<() => void>("createNewWork")!;
+const createNewWork = inject<(title: string, description?: string) => void>("createNewWork")!;
+const isWorkTitleExists = inject<(title: string) => boolean>("isWorkTitleExists")!;
 const openWork = inject<(id: string) => void>("openWork")!;
 
 const bookCovers = [
@@ -34,14 +35,72 @@ const expandedMenu = ref<string | null>(null);
 const toggleMenu = (workId: string) => {
   expandedMenu.value = expandedMenu.value === workId ? null : workId;
 };
+
+// 新建书籍对话框相关状态
+const showCreateModal = ref(false);
+const newBookTitle = ref('');
+const newBookDescription = ref('');
+const titleError = ref('');
+const showConfirmModal = ref(false);
+
+// 打开新建书籍对话框
+const openCreateModal = () => {
+  showCreateModal.value = true;
+  newBookTitle.value = '';
+  newBookDescription.value = '';
+  titleError.value = '';
+};
+
+// 关闭新建书籍对话框
+const closeCreateModal = () => {
+  showCreateModal.value = false;
+  newBookTitle.value = '';
+  newBookDescription.value = '';
+  titleError.value = '';
+  showConfirmModal.value = false;
+};
+
+// 检查书名并显示确认对话框
+const checkTitleAndConfirm = () => {
+  const title = newBookTitle.value.trim();
+  
+  if (!title) {
+    titleError.value = '请输入书名';
+    return;
+  }
+  
+  if (title.length > 50) {
+    titleError.value = '书名不能超过50个字符';
+    return;
+  }
+  
+  if (isWorkTitleExists(title)) {
+    titleError.value = '书名已存在，请输入其他名称';
+    return;
+  }
+  
+  titleError.value = '';
+  showConfirmModal.value = true;
+};
+
+// 确认创建书籍
+const confirmCreateBook = () => {
+  try {
+    createNewWork(newBookTitle.value.trim(), newBookDescription.value.trim());
+    closeCreateModal();
+  } catch (error) {
+    titleError.value = (error as Error).message;
+    showConfirmModal.value = false;
+  }
+};
 </script>
 
 <template>
   <div class="home-container">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="user-avatar">
-          <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=avatar%20portrait%20of%20a%20writer%20chinese%20style&image_size=square" alt="用户头像" />
+        <div class="app-icon">
+          <img src="../assets/index.png" alt="应用图标" />
         </div>
         <span class="user-name">作家助手</span>
       </div>
@@ -51,90 +110,23 @@ const toggleMenu = (workId: string) => {
           <Document class="nav-icon" />
           <span>小说作品</span>
         </button>
-        <button class="nav-item">
-          <Folder class="nav-icon" />
-          <span>短篇副本</span>
-        </button>
-        <button class="nav-item">
-          <DataAnalysis class="nav-icon" />
-          <span>码字统计</span>
-        </button>
-        <button class="nav-item">
-          <User class="nav-icon" />
-          <span>码字好友</span>
-        </button>
-        <button class="nav-item">
-          <span class="nav-icon-text">📚</span>
-          <span>阅创学堂</span>
-        </button>
-        <button class="nav-item">
-          <span class="nav-icon-text">💬</span>
-          <span>神助社区</span>
-        </button>
-        <button class="nav-item">
-          <span class="nav-icon-text">📋</span>
-          <span>任务中心</span>
-        </button>
-        <button class="nav-item">
-          <span class="nav-icon-text">🛒</span>
-          <span>墨水商店</span>
-        </button>
-        <button class="nav-item">
-          <span class="nav-icon-text">🎁</span>
-          <span>邀请卡</span>
-        </button>
-        <button class="nav-item">
-          <span class="nav-icon-text">🎨</span>
-          <span>装扮中心</span>
-        </button>
-        <button class="nav-item">
-          <Bell class="nav-icon" />
-          <span>消息通知</span>
-        </button>
       </nav>
     </aside>
     
     <main class="main-content">
       <header class="main-header">
         <div class="banner-section">
-          <div class="banner">
-            <div class="banner-content">
-              <h2>守护原创</h2>
-              <h3>反对抄袭</h3>
-              <p>"每一次署名支持，都是对原创生态的守护！"</p>
-            </div>
-          </div>
-          
-          <div class="task-card">
-            <div class="task-header">
-              <span class="task-title">做任务赚墨水 (10/20)</span>
-              <span class="task-arrow">></span>
-            </div>
-            <div class="task-progress">
-              <span>每日码字超过1000字得5墨水</span>
-              <span class="task-remaining">桌面端专属，还差 1000 字</span>
-            </div>
-            <button class="task-button">去完成</button>
-          </div>
         </div>
         
         <div class="action-bar">
-          <button class="action-btn primary" @click="createNewWork">
+          <button class="action-btn primary" @click="openCreateModal">
             <Plus class="action-icon" />
             <span>新建</span>
-            <span class="action-hint">私密作品、网文作品、分组</span>
+            <span class="action-hint">作品</span>
           </button>
           <button class="action-btn">
             <span>导入</span>
             <span class="action-hint">本地导入私密作品</span>
-          </button>
-          <button class="action-btn">
-            <span>投稿阅文</span>
-            <span class="action-hint">编辑直投，投稿后仅编辑可见</span>
-          </button>
-          <button class="action-btn">
-            <span>模板中心</span>
-            <span class="action-hint">总裁、现言、开头应有尽有</span>
           </button>
         </div>
       </header>
@@ -167,7 +159,7 @@ const toggleMenu = (workId: string) => {
               <img :src="getBookCover(index)" :alt="work.title" />
               <div class="work-tags">
                 <span v-if="work.chapters.length > 0" class="tag serial-tag">连载中</span>
-                <span v-if="work.genre" class="tag genre-tag">{{ work.genre }}</span>
+                <span v-if="work.volumes.length > 0" class="tag genre-tag">{{ work.volumes.length }}卷</span>
               </div>
             </div>
             <div class="work-info" @click="openWork(work.id)">
@@ -205,13 +197,78 @@ const toggleMenu = (workId: string) => {
             </div>
           </div>
           
-          <div class="work-card add-card" @click="createNewWork">
+          <div class="work-card add-card" @click="openCreateModal">
             <div class="add-icon">+</div>
             <span class="add-text">新建作品</span>
           </div>
         </div>
       </section>
     </main>
+    
+    <!-- 新建书籍对话框 -->
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>新建作品</h2>
+          <button class="modal-close" @click="closeCreateModal">
+            <X class="close-icon" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="book-title">书名 <span class="required">*</span></label>
+            <input 
+              id="book-title"
+              v-model="newBookTitle" 
+              type="text" 
+              placeholder="请输入书名"
+              class="form-input"
+              :class="{ 'error': titleError }"
+              maxlength="50"
+            />
+            <p v-if="titleError" class="error-message">{{ titleError }}</p>
+          </div>
+          
+          <div class="form-group">
+            <label for="book-description">简介</label>
+            <textarea 
+              id="book-description"
+              v-model="newBookDescription" 
+              placeholder="请输入作品简介（可选）"
+              class="form-textarea"
+              rows="4"
+              maxlength="500"
+            ></textarea>
+            <p class="char-count">{{ newBookDescription.length }}/500</p>
+          </div>
+        </div>
+        
+        <div class="modal-footer">
+          <button class="btn btn-cancel" @click="closeCreateModal">取消</button>
+          <button class="btn btn-primary" @click="checkTitleAndConfirm">下一步</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 二次确认对话框 -->
+    <div v-if="showConfirmModal" class="modal-overlay" @click.self="showConfirmModal = false">
+      <div class="modal-content confirm-modal">
+        <div class="confirm-icon">📝</div>
+        <h2>确认创建</h2>
+        <p>您确定要创建名为《{{ newBookTitle.trim() }}》的作品吗？</p>
+        
+        <div v-if="newBookDescription.trim()" class="preview-section">
+          <h3>作品简介：</h3>
+          <p>{{ newBookDescription.trim() }}</p>
+        </div>
+        
+        <div class="modal-footer">
+          <button class="btn btn-cancel" @click="showConfirmModal = false">返回修改</button>
+          <button class="btn btn-primary" @click="confirmCreateBook">确认创建</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -239,15 +296,17 @@ const toggleMenu = (workId: string) => {
   border-bottom: 1px solid #e8e4dc;
 }
 
-.user-avatar {
+.app-icon {
   width: 64px;
   height: 64px;
-  border-radius: 50%;
+  border-radius: 12px;
   overflow: hidden;
   margin-bottom: 12px;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.user-avatar img {
+.app-icon img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -665,5 +724,214 @@ const toggleMenu = (workId: string) => {
 .add-text {
   font-size: 13px;
   color: #999;
+}
+
+/* 对话框样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 480px;
+  max-width: 90%;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e8e4dc;
+}
+
+.modal-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #f5f0e8;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: background 0.2s;
+}
+
+.modal-close:hover {
+  background: #e8e4dc;
+}
+
+.close-icon {
+  width: 16px;
+  height: 16px;
+  color: #666;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.required {
+  color: #c45c3e;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e8e4dc;
+  border-radius: 8px;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #c45c3e;
+}
+
+.form-input.error {
+  border-color: #d9534f;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e8e4dc;
+  border-radius: 8px;
+  font-size: 14px;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: #c45c3e;
+}
+
+.error-message {
+  color: #d9534f;
+  font-size: 12px;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.char-count {
+  text-align: right;
+  font-size: 12px;
+  color: #999;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 24px;
+  border-top: 1px solid #e8e4dc;
+}
+
+.btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-cancel {
+  background: #f5f0e8;
+  color: #666;
+}
+
+.btn-cancel:hover {
+  background: #e8e4dc;
+}
+
+.btn-primary {
+  background: #c45c3e;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #a84c35;
+}
+
+/* 确认对话框样式 */
+.confirm-modal {
+  text-align: center;
+}
+
+.confirm-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.confirm-modal h2 {
+  margin-bottom: 8px;
+}
+
+.confirm-modal p {
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.preview-section {
+  background: #faf8f5;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.preview-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.preview-section p {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.6;
+  margin: 0;
 }
 </style>

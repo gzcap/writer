@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, inject, computed } from "vue";
 import { Plus, Delete, Search, User } from "@element-plus/icons-vue";
-import type { Work, Character, AppState } from "../App.vue";
+import type { Work, Character, AppState } from "../types";
 
 const props = defineProps<{
   visible: boolean;

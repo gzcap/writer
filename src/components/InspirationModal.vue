@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { Plus, Delete, Check } from "@element-plus/icons-vue";
-import type { Work, Inspiration } from "../App.vue";
+import type { Work, Inspiration } from "../types";
 import { ElMessage } from "element-plus";
 
 const props = defineProps<{
@@ -31,7 +31,9 @@ const addInspiration = () => {
     title: "",
     content: "",
     createdAt: Date.now(),
-    tags: [],
+    updatedAt: Date.now(),
+    type: '',
+    color: '#c45c3e',
   };
   props.work.inspirations.unshift(newInspiration);
   editingInspiration.value = newInspiration;
@@ -56,19 +58,6 @@ const saveInspiration = () => {
     props.work.updatedAt = Date.now();
   }
   ElMessage.success("保存成功");
-};
-
-const addTag = () => {
-  if (!editingInspiration.value) return;
-  const newTag = prompt("输入标签名称");
-  if (newTag && !editingInspiration.value.tags.includes(newTag)) {
-    editingInspiration.value.tags.push(newTag);
-  }
-};
-
-const removeTag = (tag: string) => {
-  if (!editingInspiration.value) return;
-  editingInspiration.value.tags = editingInspiration.value.tags.filter((t: string) => t !== tag);
 };
 
 watch(() => props.visible, (val) => {
@@ -115,17 +104,8 @@ watch(() => props.work?.inspirations, (val) => {
             <div class="card-content">
               {{ insp.content.slice(0, 50) }}{{ insp.content.length > 50 ? "..." : "" }}
             </div>
-            <div v-if="insp.tags.length > 0" class="card-tags">
-              <span
-                v-for="tag in insp.tags.slice(0, 3)"
-                :key="tag"
-                class="tag"
-              >
-                {{ tag }}
-              </span>
-              <span v-if="insp.tags.length > 3" class="tag more">
-                +{{ insp.tags.length - 3 }}
-              </span>
+            <div v-if="insp.type" class="card-tags">
+              <span class="tag">{{ insp.type }}</span>
             </div>
             <div class="card-actions">
               <el-button :icon="Delete" size="small" type="danger" @click.stop="deleteInspiration(insp.id)">
@@ -166,21 +146,13 @@ watch(() => props.work?.inspirations, (val) => {
             ></textarea>
           </div>
           <div class="form-group">
-            <label>标签</label>
-            <div class="tag-container">
-              <div
-                v-for="tag in editingInspiration.tags"
-                :key="tag"
-                class="tag-item"
-              >
-                {{ tag }}
-                <span class="tag-remove" @click="removeTag(tag)">×</span>
-              </div>
-              <button class="add-tag-btn" @click="addTag">
-                <Plus style="width: 14px; height: 14px;" />
-                添加标签
-              </button>
-            </div>
+            <label>类型</label>
+            <input 
+              v-model="editingInspiration.type" 
+              type="text" 
+              placeholder="输入灵感类型"
+              class="form-input"
+            />
           </div>
           <div class="form-group">
             <label>创建时间</label>

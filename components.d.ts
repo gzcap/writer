@@ -13,13 +13,11 @@ declare module 'vue' {
   export interface GlobalComponents {
     CharacterModal: typeof import('./src/components/CharacterModal.vue')['default']
     DescriptionModal: typeof import('./src/components/DescriptionModal.vue')['default']
-    EditorView: typeof import('./src/components/EditorView.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElForm: typeof import('element-plus/es')['ElForm']
     ElFormItem: typeof import('element-plus/es')['ElFormItem']
     ElInput: typeof import('element-plus/es')['ElInput']
-    HomeView: typeof import('./src/components/HomeView.vue')['default']
     InspirationModal: typeof import('./src/components/InspirationModal.vue')['default']
     OutlineModal: typeof import('./src/components/OutlineModal.vue')['default']
     SettingModal: typeof import('./src/components/SettingModal.vue')['default']

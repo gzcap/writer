@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, inject } from "vue";
-import type { Work, AppState } from "../App.vue";
+import type { Work, AppState } from "../types";
 
 const props = defineProps<{
   visible: boolean;

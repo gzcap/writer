@@ -13,11 +13,11 @@
  * 7. 自动保存和增量保存逻辑
  */
 
-import { provide, reactive, computed, onMounted, onUnmounted } from "vue";
+import { provide, reactive, computed } from "vue";
 
 // 导入组件
-import HomeView from "./components/HomeView.vue";
-import EditorView from "./components/EditorView.vue";
+import HomeView from "./views/HomeView.vue";
+import EditorView from "./views/EditorView.vue";
 import OutlineModal from "./components/OutlineModal.vue";
 import CharacterModal from "./components/CharacterModal.vue";
 import InspirationModal from "./components/InspirationModal.vue";
@@ -26,14 +26,10 @@ import DescriptionModal from "./components/DescriptionModal.vue";
 import ViewWindow from "./components/ViewWindow.vue";
 
 // 导入类型定义
-import type { Work, Volume, Chapter, Character, OutlineItem, Inspiration, Tab, AppState, ModifiedItems } from "./types";
+import type { Work, Volume, Chapter, Character, OutlineItem, Inspiration, Tab, AppState, TabViewType } from "./types";
 
 // 导入工具函数
-import { generateId, sanitizeFileName, debounce, numberToChinese } from "./utils/utils";
-
-// 导入服务模块
-import { createWorkService } from "./utils/workService";
-import { createAppState, createAppStore } from "./store/store";
+import { generateId } from "./utils/utils";
 
 // ==================== 2. 初始化应用状态 ====================
 
@@ -55,6 +51,8 @@ const appState = reactive<AppState>({
   showDescriptionModal: false,
   showLocalSaveModal: false,
   savePath: "",
+  isSaving: false,
+  saveStatus: 'idle',
 });
 
 // ==================== 3. 数据加载和保存逻辑 ====================
@@ -146,7 +144,7 @@ const loadWorkFromFolder = async (folderPath: string, folderName: string): Promi
       id: generateId(),
       title: folderName,
       description: '',
-      genre: '',
+      cover: '',
       volumes: [],
       chapters: [],
       characters: [],
@@ -154,6 +152,7 @@ const loadWorkFromFolder = async (folderPath: string, folderName: string): Promi
       inspirations: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      totalWordCount: 0,
     };
     
     // 读取简介
@@ -350,6 +349,23 @@ const extractChapterNumber = (name: string): number => {
   return 999; // 默认排在最后
 };
 
+// 从章节标题中提取"第x章"部分（用于匹配）
+const extractChapterPrefix = (title: string): string => {
+  // 匹配"第X章"格式（中文数字）
+  const chineseMatch = title.match(/第([一二三四五六七八九十]+)章/);
+  if (chineseMatch) {
+    return `第${chineseMatch[1]}章`;
+  }
+  
+  // 匹配"第X章"格式（阿拉伯数字）
+  const numMatch = title.match(/第(\d+)章/);
+  if (numMatch) {
+    return `第${numMatch[1]}章`;
+  }
+  
+  return title; // 如果没有匹配到"第x章"格式，返回原标题
+};
+
 const parseChapterFromMarkdown = (content: string, fileName: string): Chapter => {
   // 尝试从内容中提取标题
   let title = fileName.replace(/\.md$/, '');
@@ -476,7 +492,9 @@ const parseInspirationFromMarkdown = (content: string, fileName: string): Inspir
     title: actualTitle,
     content: inspirationContent,
     createdAt: Date.now(),
-    tags: tags,
+    updatedAt: Date.now(),
+    type: '',
+    color: '#c45c3e',
   };
 };
 
@@ -496,11 +514,12 @@ const createDefaultWork = () => {
       id: generateId(),
       title: "我的灵感是一方世界",
       description: "一个充满想象力的故事",
-      genre: "玄幻",
+      cover: '',
       volumes: [
         {
           id: generateId(),
           title: "第一卷 武陵篇",
+          description: '',
           chapterIds: [],
           order: 0,
         },
@@ -558,14 +577,16 @@ const createDefaultWork = () => {
           title: "故事灵感",
           content: "从中国传统文化中汲取灵感，创造一个独特的玄幻世界",
           createdAt: Date.now(),
-          tags: ["玄幻", "东方"],
+          updatedAt: Date.now(),
+          type: '',
+          color: '#c45c3e',
         },
       ],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      totalWordCount: 0,
     },
   ];
-  saveData();
 };
 
 const saveData = () => {
@@ -587,7 +608,7 @@ const syncToFileSystem = async () => {
   if (!appState.savePath) return;
   
   try {
-    const { mkdir, writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const { mkdir, writeTextFile, readTextFile } = await import('@tauri-apps/plugin-fs');
     const { join } = await import('@tauri-apps/api/path');
     
     // 同步每一部作品
@@ -637,6 +658,32 @@ const syncToFileSystem = async () => {
         const volFolder = await join(workFolder, sanitizeFileName(volume.title));
         await mkdir(volFolder, { recursive: true });
         
+        // 获取该卷下所有章节的标题列表
+        const chapterTitles = volume.chapterIds
+          .map(id => work.chapters.find(c => c.id === id)?.title)
+          .filter((title): title is string => title !== undefined);
+        
+        // 删除不再匹配任何章节标题的旧文件
+        const { readDir, remove } = await import('@tauri-apps/plugin-fs');
+        const existingFiles = await readDir(volFolder);
+        for (const entry of existingFiles) {
+          if (entry.isFile && entry.name?.endsWith('.md') && 
+              entry.name !== '简介.md' && 
+              entry.name !== `${sanitizeFileName(volume.title)}.md`) {
+            const filePath = await join(volFolder, entry.name);
+            const content = await readTextFile(filePath);
+            const lines = content.split('\n');
+            const titleMatch = lines[0]?.match(/^#\s+(.+)$/);
+            
+            // 如果文件内容标题不再匹配任何章节标题，删除该文件
+            if (titleMatch && !chapterTitles.includes(titleMatch[1].trim())) {
+              await remove(filePath);
+              console.log(`删除旧章节文件: ${entry.name}`);
+            }
+          }
+        }
+        
+        // 保存章节
         for (const chapId of volume.chapterIds) {
           const chapter = work.chapters.find(c => c.id === chapId);
           if (chapter) {
@@ -658,8 +705,16 @@ const syncToFileSystem = async () => {
 /**
  * 创建新作品
  * 创建包含默认卷和章节的新作品
+ * @param title 作品名称
+ * @param description 作品简介
  */
-const createNewWork = () => {
+const createNewWork = (title: string, description: string = '') => {
+  // 检查书名是否重复
+  const isDuplicate = appState.works.some(w => w.title === title);
+  if (isDuplicate) {
+    throw new Error('书名已存在，请输入其他名称');
+  }
+  
   const chapterId = generateId();
   const volumeId = generateId();
   
@@ -676,15 +731,16 @@ const createNewWork = () => {
   const newVolume: Volume = {
     id: volumeId,
     title: "第一卷",
+    description: '',
     chapterIds: [chapterId],
     order: 0,
   };
   
   const newWork: Work = {
     id: generateId(),
-    title: "新作品",
-    description: "",
-    genre: "",
+    title,
+    description,
+    cover: '',
     volumes: [newVolume],
     chapters: [newChapter],
     characters: [],
@@ -692,9 +748,19 @@ const createNewWork = () => {
     inspirations: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    totalWordCount: 0,
   };
   appState.works.unshift(newWork);
   saveData();
+};
+
+/**
+ * 检查书名是否已存在
+ * @param title 书名
+ * @returns 是否存在
+ */
+const isWorkTitleExists = (title: string): boolean => {
+  return appState.works.some(w => w.title === title);
 };
 
 const deleteWork = (workId: string) => {
@@ -726,6 +792,7 @@ const openWork = (workId: string) => {
       const newVolume: Volume = {
         id: generateId(),
         title: "第一卷",
+        description: '',
         chapterIds: [chapterId],
         order: 0,
       };
@@ -864,7 +931,8 @@ const createNewVolume = async () => {
   // 创建本地文件夹和卷信息文件
   if (appState.savePath) {
     try {
-      const { join, mkdir, writeTextFile } = await import('@tauri-apps/plugin-fs');
+      const { mkdir, writeTextFile } = await import('@tauri-apps/plugin-fs');
+      const { join } = await import('@tauri-apps/api/path');
       
       const volFolder = await join(appState.savePath, sanitizeFileName(work.title), sanitizeFileName(newVolume.title));
       await mkdir(volFolder, { recursive: true });
@@ -986,7 +1054,8 @@ const updateVolume = async (volumeId: string, title: string, description: string
     // 同步到本地
     if (appState.savePath) {
       try {
-        const { join, mkdir, writeTextFile, rename, exists, remove } = await import('@tauri-apps/plugin-fs');
+        const { mkdir, writeTextFile, rename, exists, remove } = await import('@tauri-apps/plugin-fs');
+        const { join } = await import('@tauri-apps/api/path');
         
         const volFolder = await join(appState.savePath, sanitizeFileName(work.title), sanitizeFileName(oldTitle));
         const newVolFolder = await join(appState.savePath, sanitizeFileName(work.title), sanitizeFileName(title));
@@ -1038,7 +1107,8 @@ const reorderVolumes = async (volumeIds: string[]) => {
   // 同步本地文件夹名称（按新顺序重命名）
   if (appState.savePath) {
     try {
-      const { join, rename, exists } = await import('@tauri-apps/plugin-fs');
+      const { rename, exists } = await import('@tauri-apps/plugin-fs');
+      const { join } = await import('@tauri-apps/api/path');
       
       // 暂时重命名为临时名称，避免冲突
       for (const v of work.volumes) {
@@ -1082,7 +1152,8 @@ const reorderChapters = async (volumeId: string, chapterIds: string[]) => {
   // 同步本地文件（根据章节名匹配并覆盖）
   if (appState.savePath) {
     try {
-      const { join, writeTextFile, readTextFile, remove, exists } = await import('@tauri-apps/plugin-fs');
+      const { writeTextFile, readTextFile, remove, mkdir, readDir } = await import('@tauri-apps/plugin-fs');
+      const { join } = await import('@tauri-apps/api/path');
       
       const volFolder = await join(appState.savePath, sanitizeFileName(work.title), sanitizeFileName(volume.title));
       await mkdir(volFolder, { recursive: true });
@@ -1102,9 +1173,14 @@ const reorderChapters = async (volumeId: string, chapterIds: string[]) => {
               const content = await readTextFile(filePath);
               const lines = content.split('\n');
               const titleMatch = lines[0]?.match(/^#\s+(.+)$/);
-              if (titleMatch && titleMatch[1].trim() === chapter.title) {
-                chapterContents.set(chapId, content);
-                break;
+              if (titleMatch) {
+                // 只比较"第x章"部分是否一致
+                const fileChapterPrefix = extractChapterPrefix(titleMatch[1].trim());
+                const chapterPrefix = extractChapterPrefix(chapter.title);
+                if (fileChapterPrefix === chapterPrefix) {
+                  chapterContents.set(chapId, content);
+                  break;
+                }
               }
             }
           }
@@ -1211,7 +1287,7 @@ const moveChapter = async (chapterId: string, direction: 'up' | 'down') => {
   if (appState.savePath) {
     try {
       const { join } = await import('@tauri-apps/api/path');
-      const { rename, exists, writeTextFile, remove } = await import('@tauri-apps/plugin-fs');
+      const { writeTextFile, remove } = await import('@tauri-apps/plugin-fs');
       
       const volFolder = await join(appState.savePath, sanitizeFileName(work.title), sanitizeFileName(volume.title));
       
@@ -1228,9 +1304,14 @@ const moveChapter = async (chapterId: string, direction: 'up' | 'down') => {
               // 检查内容中的章节ID或标题是否匹配
               const lines = content.split('\n');
               const titleMatch = lines[0]?.match(/^#\s+(.+)$/);
-              if (titleMatch && titleMatch[1].trim() === chapter.title) {
-                // 这是正确的文件，不需要重命名
-                continue;
+              if (titleMatch) {
+                // 只比较"第x章"部分是否一致
+                const fileChapterPrefix = extractChapterPrefix(titleMatch[1].trim());
+                const chapterPrefix = extractChapterPrefix(chapter.title);
+                if (fileChapterPrefix === chapterPrefix) {
+                  // 这是正确的文件，不需要重命名
+                  continue;
+                }
               }
             }
           }
@@ -1358,7 +1439,9 @@ const addInspiration = () => {
     title: "",
     content: "",
     createdAt: Date.now(),
-    tags: [],
+    updatedAt: Date.now(),
+    type: '',
+    color: '#c45c3e',
   };
   work.inspirations.unshift(newInspiration);
   saveData();
@@ -1708,10 +1791,13 @@ const saveWorkIncremental = async (work: Work, maxRetries = 3) => {
           
           await mkdir(folder, { recursive: true });
           
-          // 查找是否有匹配章节名的文件
-          const existingFiles = await readDir(folder);
-          let matchedFile: string | null = null;
+          // 获取该卷下所有章节的标题列表
+          const allChapterTitles = volume 
+            ? volume.chapterIds.map(id => work.chapters.find(c => c.id === id)?.title).filter(Boolean)
+            : work.chapters.filter(c => !work.volumes.some(v => v.chapterIds.includes(c.id))).map(c => c.title);
           
+          // 删除旧文件（标题不再匹配任何章节的文件）
+          const existingFiles = await readDir(folder);
           for (const entry of existingFiles) {
             if (entry.isFile && entry.name?.endsWith('.md') && 
                 entry.name !== '简介.md' && 
@@ -1721,10 +1807,35 @@ const saveWorkIncremental = async (work: Work, maxRetries = 3) => {
               const lines = content.split('\n');
               const titleMatch = lines[0]?.match(/^#\s+(.+)$/);
               
+              // 如果文件内容标题不再匹配任何章节标题，删除该文件
+              if (titleMatch && !allChapterTitles.includes(titleMatch[1].trim())) {
+                await remove(filePath);
+                console.log(`删除旧章节文件: ${entry.name}`);
+              }
+            }
+          }
+          
+          // 查找是否有匹配章节名的文件
+          let matchedFile: string | null = null;
+          const currentFiles = await readDir(folder);
+          for (const entry of currentFiles) {
+            if (entry.isFile && entry.name?.endsWith('.md') && 
+                entry.name !== '简介.md' && 
+                entry.name !== `${sanitizeFileName(volume?.title || '')}.md`) {
+              const filePath = await join(folder, entry.name);
+              const content = await readTextFile(filePath);
+              const lines = content.split('\n');
+              const titleMatch = lines[0]?.match(/^#\s+(.+)$/);
+              
               // 如果文件内容标题匹配当前章节标题，则匹配成功
-              if (titleMatch && titleMatch[1].trim() === chapter.title) {
-                matchedFile = filePath;
-                break;
+              if (titleMatch) {
+                // 只比较"第x章"部分是否一致
+                const fileChapterPrefix = extractChapterPrefix(titleMatch[1].trim());
+                const chapterPrefix = extractChapterPrefix(chapter.title);
+                if (fileChapterPrefix === chapterPrefix) {
+                  matchedFile = filePath;
+                  break;
+                }
               }
             }
           }
@@ -1764,6 +1875,7 @@ provide("saveData", saveData);
 provide("autoSave", autoSave);
 provide("saveImmediately", saveImmediately);
 provide("createNewWork", createNewWork);
+provide("isWorkTitleExists", isWorkTitleExists);
 provide("deleteWork", deleteWork);
 provide("openWork", openWork);
 provide("openViewTab", openViewTab);

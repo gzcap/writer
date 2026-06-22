@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, inject } from "vue";
 import { Search, Delete, Plus, ArrowDown, ArrowRight } from "@element-plus/icons-vue";
-import type { Work, OutlineItem, AppState } from "../App.vue";
+import type { Work, OutlineItem, AppState } from "../types";
 
 const props = defineProps<{
   visible: boolean;
@@ -42,7 +42,7 @@ const getOutlineItems = computed(() => {
 });
 
 const getChildren = (parentId: string | null) => {
-  return getOutlineItems.value.filter((item: OutlineItem) => item.parentId === parentId).sort((a: OutlineItem, b: OutlineItem) => a.order - b.order);
+  return getOutlineItems.value.filter((item: OutlineItem) => item.parentId === parentId).sort((a: OutlineItem, b: OutlineItem) => (a.order || 0) - (b.order || 0));
 };
 
 const toggleExpand = (item: OutlineItem) => {

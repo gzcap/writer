@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from "vue";
-import type { Work, OutlineItem, Character, Inspiration } from "../App.vue";
+import type { Work, OutlineItem, Character, Inspiration } from "../types";
 import { Search, Delete, Plus, ArrowDown, ArrowRight, User, Close } from "@element-plus/icons-vue";
 import { ElButton, ElMessageBox, ElMessage } from "element-plus";
 
@@ -61,7 +61,7 @@ const groupedCharacters = computed(() => {
 const getChildren = (parentId: string | null) => {
   // 如果是outline-root，获取所有章纲（parentId为outline-root的项）
   if (parentId === "outline-root") {
-    return outlineItems.value.filter((item: OutlineItem) => item.parentId === "outline-root").sort((a: OutlineItem, b: OutlineItem) => a.order - b.order);
+    return outlineItems.value.filter((item: OutlineItem) => item.parentId === "outline-root").sort((a: OutlineItem, b: OutlineItem) => (a.order || 0) - (b.order || 0));
   }
   return [];
 };
@@ -244,7 +244,7 @@ const saveOutlineToFile = async () => {
     // 将大纲数据转换为 Markdown 格式保存
     const generateMarkdown = (items: OutlineItem[], parentId: string | null, level: number = 0): string => {
       let md = "";
-      const children = items.filter(i => i.parentId === parentId).sort((a, b) => a.order - b.order);
+      const children = items.filter(i => i.parentId === parentId).sort((a, b) => (a.order || 0) - (b.order || 0));
       
       children.forEach(item => {
         // 跳过根节点"大纲"，只保存章纲内容
@@ -336,7 +336,7 @@ const parseMarkdownToOutline = (md: string): OutlineItem[] => {
   let currentItem: OutlineItem | null = null;
   let contentBuffer: string[] = [];
   
-  lines.forEach((line, index) => {
+  lines.forEach((line) => {
     // 匹配标题行（非转义的）
     const match = line.match(/^(#{1,6})\s+(.+)$/);
     const isEscaped = line.match(/^\\#{1,6}\s+/);
@@ -369,7 +369,7 @@ const parseMarkdownToOutline = (md: string): OutlineItem[] => {
   // 保存最后一项的内容
   if (currentItem && contentBuffer.length > 0) {
     // 将转义的标题格式还原
-    currentItem.content = contentBuffer.join('\n').replace(/^\\#{1,6}\s/gm, '#').trim();
+    (currentItem as OutlineItem).content = contentBuffer.join('\n').replace(/^\\#{1,6}\s/gm, '#').trim();
   }
   
   return items;
@@ -556,7 +556,9 @@ const addInspiration = () => {
     title: "新灵感",
     content: "",
     createdAt: Date.now(),
-    tags: [],
+    updatedAt: Date.now(),
+    type: '',
+    color: '#c45c3e',
   };
   work.value.inspirations.push(newInspiration);
   inspirations.value = work.value.inspirations;
@@ -665,7 +667,7 @@ onMounted(async () => {
     id: workId.value,
     title: workTitle.value,
     description: "",
-    genre: "",
+    cover: '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     chapters: [],
@@ -673,18 +675,19 @@ onMounted(async () => {
     characters: [],
     outline: [],
     inspirations: [],
+    totalWordCount: 0,
   };
   
   // 根据视图类型加载数据
   if (viewType.value === "outline") {
     await loadOutlineFromFile();
-  } else if (viewType.value === "character") {
+  } else if (viewType.value === "character" && work.value) {
     characters.value = work.value.characters;
-  } else if (viewType.value === "description") {
+  } else if (viewType.value === "description" && work.value) {
     descriptionContent.value = work.value.description || "";
     // 简介初始状态为已保存
     saveStatus.value = "saved";
-  } else if (viewType.value === "inspiration") {
+  } else if (viewType.value === "inspiration" && work.value) {
     inspirations.value = work.value.inspirations;
   }
   
@@ -730,7 +733,7 @@ onMounted(async () => {
         <span class="header-title">{{ viewType === 'outline' ? '大纲' : viewType === 'character' ? '角色' : viewType === 'description' ? '简介' : '灵感' }}</span>
       </div>
       <div class="header-right">
-        <div v-if="saveStatus !== 'idle' && saveStatus !== 'saved' && viewType !== 'description'" class="save-status" :class="saveStatus">
+        <div v-if="saveStatus !== 'idle' && viewType !== 'description'" class="save-status" :class="saveStatus">
           <span class="status-icon">
             <span v-if="saveStatus === 'saved'">✓</span>
             <span v-else-if="saveStatus === 'saving'" class="spinner">⟳</span>
