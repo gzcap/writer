@@ -322,9 +322,9 @@ onMounted(async () => {
             <span class="retry-icon">⟳</span>
           </button>
         </div>
-        <button class="close-btn" @click="closeWindow">
+        <!-- <button class="close-btn" @click="closeWindow">
           <Close class="close-icon" />
-        </button>
+        </button> -->
       </div>
     </div>
     

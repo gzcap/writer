@@ -1,4 +1,4 @@
-<script setup lang="ts">import { ref, inject, watch } from "vue";
+<script setup lang="ts">import { ref, inject, watch, nextTick, computed } from "vue";
 import { Plus, Search, User, Setting } from "@element-plus/icons-vue";
 import { ElMessageBox, ElMessage } from "element-plus";
 import type { Work, Chapter, Volume, AppState } from "../types";
@@ -16,7 +16,6 @@ const saveImmediately = inject<() => void>("saveImmediately")!;
 const markChapterModified = inject<(chapterId: string) => void>("markChapterModified")!;
 const moveChapter = inject<(chapterId: string, direction: 'up' | 'down') => void>("moveChapter")!;
 const chapterTitle = ref("");
-const chapterContent = ref("");
 const wordCount = ref(0);
 const currentWork = ref<Work | null>(null);
 const currentChapter = ref<Chapter | null>(null);
@@ -35,6 +34,210 @@ const draggedVolumeId = ref<string | null>(null);
 const draggedChapterId = ref<string | null>(null);
 const dragOverVolumeId = ref<string | null>(null);
 const dragOverChapterId = ref<string | null>(null);
+
+// 编辑器状态
+const editorRef = ref<HTMLDivElement | null>(null);
+const isFullscreen = ref(false);
+const isSaved = ref(true);
+const lastSavedTime = ref<number | null>(null);
+const saveTimer = ref<number | null>(null);
+
+// 格式化状态
+const isBold = ref(false);
+const isItalic = ref(false);
+const isUnderline = ref(false);
+const currentFontSize = ref(16);
+const currentFontFamily = ref("微软雅黑");
+const currentLineHeight = ref(1.8);
+
+// 写作统计
+const writingTime = ref(0);
+const writingTimer = ref<number | null>(null);
+const startTime = ref<number | null>(null);
+
+// 字数统计
+const chapterCharCount = ref(0);
+const chapterParagraphCount = ref(0);
+
+// 计划字数
+const planWordCount = ref(4600);
+
+// 计算字数（中文按字，英文按词）
+const calculateWordCount = (content: string) => {
+  const chinese = (content.match(/[\u4e00-\u9fa5]/g) || []).length;
+  const english = (content.match(/[a-zA-Z]+/g) || []).join('');
+  const englishWords = english ? english.split(/\s+/).filter(w => w.length > 0).length : 0;
+  return chinese + englishWords;
+};
+
+// 计算段落数
+const calculateParagraphCount = (content: string) => {
+  if (!content.trim()) return 0;
+  return content.split(/\n+/).filter(p => p.trim().length > 0).length;
+};
+
+// 编辑器格式化命令
+const execCommand = (command: string, value: string | undefined = undefined) => {
+  document.execCommand(command, false, value);
+  editorRef.value?.focus();
+  updateFormatState();
+};
+
+// 格式化状态更新
+const updateFormatState = () => {
+  isBold.value = document.queryCommandState('bold');
+  isItalic.value = document.queryCommandState('italic');
+  isUnderline.value = document.queryCommandState('underline');
+};
+
+// 格式化按钮操作
+const toggleBold = () => execCommand('bold');
+const toggleItalic = () => execCommand('italic');
+const toggleUnderline = () => execCommand('underline');
+
+// 设置字体大小
+const setFontSize = (size: number) => {
+  currentFontSize.value = size;
+  execCommand('fontSize', String(size));
+};
+
+// 设置字体
+const setFontFamily = (family: string) => {
+  currentFontFamily.value = family;
+  execCommand('fontName', family);
+};
+
+// 设置行高
+const setLineHeight = (height: number) => {
+  currentLineHeight.value = height;
+  if (editorRef.value) {
+    editorRef.value.style.lineHeight = String(height);
+  }
+};
+
+// 插入分割线
+const insertDivider = () => {
+  const divider = document.createElement('hr');
+  divider.style.border = 'none';
+  divider.style.borderTop = '1px dashed #ccc';
+  divider.style.margin = '16px 0';
+  
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    range.insertNode(divider);
+    range.collapse(false);
+  }
+};
+
+// 一键排版
+const formatContent = () => {
+  if (!editorRef.value) return;
+  
+  let content = editorRef.value.innerHTML;
+  content = content.replace(/<div><br><\/div>/g, '<div><br></div>');
+  content = content.replace(/(<div><br><\/div>){3,}/g, '<div><br></div><div><br></div>');
+  content = content.replace(/<div([^>]*)>　+/g, '<div$1>');
+  content = content.replace(/　+/g, ' ');
+  
+  editorRef.value.innerHTML = content;
+};
+
+// 全屏切换
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value;
+  if (isFullscreen.value) {
+    document.documentElement.requestFullscreen?.();
+  } else {
+    document.exitFullscreen?.();
+  }
+};
+
+// 获取纯文本内容
+const getPlainText = () => {
+  if (!editorRef.value) return '';
+  return editorRef.value.innerText || editorRef.value.textContent || '';
+};
+
+// 从编辑器获取HTML内容
+const getEditorContent = () => {
+  if (!editorRef.value) return '';
+  return editorRef.value.innerHTML;
+};
+
+// 设置编辑器内容
+const setEditorContent = (content: string) => {
+  if (editorRef.value) {
+    editorRef.value.innerHTML = content;
+    updateWordCount(getPlainText());
+  }
+};
+
+// 开始写作计时
+const startWritingTimer = () => {
+  if (writingTimer.value) return;
+  startTime.value = Date.now();
+  writingTimer.value = window.setInterval(() => {
+    if (startTime.value) {
+      writingTime.value = Math.floor((Date.now() - startTime.value) / 1000);
+    }
+  }, 1000);
+};
+
+// 停止写作计时
+const stopWritingTimer = () => {
+  if (writingTimer.value) {
+    clearInterval(writingTimer.value);
+    writingTimer.value = null;
+  }
+};
+
+// 格式化写作时间
+const formatWritingTime = (seconds: number) => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (hours > 0) {
+    return `${hours}小时${minutes}分`;
+  }
+  if (minutes > 0) {
+    return `${minutes}分${secs}秒`;
+  }
+  return `${secs}秒`;
+};
+
+// 延迟保存
+const debouncedSave = () => {
+  if (saveTimer.value) {
+    clearTimeout(saveTimer.value);
+  }
+  isSaved.value = false;
+  saveTimer.value = window.setTimeout(() => {
+    syncContentToState();
+    isSaved.value = true;
+    lastSavedTime.value = Date.now();
+    autoSave();
+  }, 1000);
+};
+
+// 同步内容到状态
+const syncContentToState = () => {
+  const work = getWork();
+  const chapter = getChapter();
+  if (work && chapter) {
+    chapter.content = getEditorContent();
+    chapter.wordCount = calculateWordCount(getPlainText());
+    chapter.updatedAt = Date.now();
+    work.updatedAt = Date.now();
+    markChapterModified(chapter.id);
+  }
+};
+
+// 计划进度
+const planProgress = computed(() => {
+  if (planWordCount.value === 0) return 0;
+  return Math.min(100, Math.round((wordCount.value / planWordCount.value) * 100));
+});
 
 const getVolumeChapters = (volume: Volume) => {
   if (!currentWork.value) return [];
@@ -315,9 +518,9 @@ const getChapter = () => {
 };
 
 const updateWordCount = (content: string) => {
-  const chinese = (content.match(/[\u4e00-\u9fa5]/g) || []).length;
-  const english = (content.match(/[a-zA-Z]/g) || []).length;
-  wordCount.value = chinese + Math.floor(english / 2);
+  wordCount.value = calculateWordCount(content);
+  chapterCharCount.value = content.length;
+  chapterParagraphCount.value = calculateParagraphCount(content);
 };
 
 const loadCurrentChapter = () => {
@@ -325,10 +528,21 @@ const loadCurrentChapter = () => {
   const chapter = getChapter();
   currentWork.value = work || null;
   currentChapter.value = chapter || null;
+  
+  stopWritingTimer();
+  writingTime.value = 0;
+  
   if (chapter) {
     chapterTitle.value = chapter.title;
-    chapterContent.value = chapter.content;
-    updateWordCount(chapter.content);
+    nextTick(() => {
+      setEditorContent(chapter.content);
+      startWritingTimer();
+    });
+  } else {
+    chapterTitle.value = '';
+    if (editorRef.value) {
+      editorRef.value.innerHTML = '';
+    }
   }
 };
 
@@ -352,23 +566,6 @@ const formatTime = (timestamp: number) => {
 watch(() => [appState.currentWorkId, appState.currentChapterId], () => {
   loadCurrentChapter();
 }, { immediate: true });
-
-// 内容变化时更新到 appState 并触发自动保存
-watch(chapterContent, (val) => {
-  updateWordCount(val);
-  // 同步更新到 appState
-  const work = getWork();
-  const chapter = getChapter();
-  if (work && chapter) {
-    chapter.content = val;
-    chapter.wordCount = val.replace(/\s/g, '').length;
-    chapter.updatedAt = Date.now();
-    work.updatedAt = Date.now();
-    // 标记章节为已修改
-    markChapterModified(chapter.id);
-  }
-  autoSave();
-});
 
 // 章节标题变化时更新到 appState 并触发自动保存
 watch(chapterTitle, (val) => {
@@ -517,64 +714,72 @@ watch(() => appState.currentChapterId, () => {
           </div>
         </div>
       </div>
-      
-      <!-- <div class="sidebar-footer">
-        <button class="new-chapter-btn">
-          <Plus class="btn-icon" />
-          <span>新建章节</span>
-        </button>
-      </div> -->
     </aside>
     
-    <main class="editor-main">
+    <main class="editor-main" :class="{ fullscreen: isFullscreen }">
       <header class="editor-toolbar">
         <div class="toolbar-left">
-          <button class="tool-btn">
-            <span>T</span>
-            <span class="tool-label">字体</span>
-          </button>
-          <!-- <button class="tool-btn">
-            <span>☰</span>
-            <span class="tool-label">背景</span>
-          </button> -->
+          <div class="font-controls">
+            <select class="font-select" :value="currentFontFamily" @change="setFontFamily(($event.target as HTMLSelectElement).value)">
+              <option value="微软雅黑">微软雅黑</option>
+              <option value="宋体">宋体</option>
+              <option value="黑体">黑体</option>
+              <option value="楷体">楷体</option>
+              <option value="Arial">Arial</option>
+              <option value="Georgia">Georgia</option>
+            </select>
+            <select class="font-size-select" :value="currentFontSize" @change="setFontSize(Number(($event.target as HTMLSelectElement).value))">
+              <option value="14">14</option>
+              <option value="16">16</option>
+              <option value="18">18</option>
+              <option value="20">20</option>
+              <option value="22">22</option>
+              <option value="24">24</option>
+            </select>
+          </div>
           <div class="toolbar-divider"></div>
-          <button class="tool-btn">
+          <button class="tool-btn" :class="{ active: isBold }" @click="toggleBold" title="加粗">
+            <span>B</span>
+          </button>
+          <button class="tool-btn" :class="{ active: isItalic }" @click="toggleItalic" title="斜体">
+            <span style="font-style: italic">I</span>
+          </button>
+          <button class="tool-btn" :class="{ active: isUnderline }" @click="toggleUnderline" title="下划线">
+            <span style="text-decoration: underline">U</span>
+          </button>
+          <div class="toolbar-divider"></div>
+          <div class="line-height-controls">
+            <button class="tool-btn" @click="setLineHeight(Math.max(1.2, currentLineHeight - 0.2))" title="减小行距">－</button>
+            <span class="line-height-label">{{ currentLineHeight.toFixed(1) }}</span>
+            <button class="tool-btn" @click="setLineHeight(Math.min(3, currentLineHeight + 0.2))" title="增大行距">＋</button>
+          </div>
+          <div class="toolbar-divider"></div>
+          <button class="tool-btn" @click="formatContent" title="一键排版">
             <span>⊛</span>
-            <span class="tool-label">一键排版</span>
+            <span class="tool-label">排版</span>
           </button>
-          <button class="tool-btn">
-            <span>＋</span>
-            <span class="tool-label">插入</span>
-          </button>
-          <button class="tool-btn">
-            <span>↩</span>
-            <span class="tool-label">输入</span>
+          <button class="tool-btn" @click="insertDivider" title="插入分割线">
+            <span>―</span>
+            <span class="tool-label">分割</span>
           </button>
         </div>
         
         <div class="toolbar-center">
           <span class="work-name">{{ currentWork?.title || "未命名作品" }}</span>
-          <!-- <span class="auto-save">本地实时保存中</span> -->
+          <span class="chapter-name">{{ currentChapter?.title ? ` - ${currentChapter.title}` : '' }}</span>
+          <span class="save-status" :class="{ saved: isSaved }">{{ isSaved ? '已保存' : '保存中...' }}</span>
         </div>
         
         <div class="toolbar-right">
-          <button class="tool-btn">
-            <span>⊡</span>
-            <span class="tool-label">全屏</span>
+          <button class="tool-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+            <span>{{ isFullscreen ? '⛶' : '⊡' }}</span>
+            <span class="tool-label">{{ isFullscreen ? '退出' : '全屏' }}</span>
           </button>
-          <button class="tool-btn">
+          <button class="tool-btn" @click="() => {}" title="查找替换">
             <span>🔍</span>
-            <span class="tool-label">查找替换</span>
+            <span class="tool-label">查找</span>
           </button>
-          <!-- <button class="tool-btn">
-            <span>ⓝ</span>
-            <span class="tool-label">取名</span>
-          </button>
-          <button class="tool-btn">
-            <span>✏️</span>
-            <span class="tool-label">画师</span>
-          </button> -->
-          <button class="tool-btn">
+          <button class="tool-btn" @click="() => {}" title="历史版本">
             <span>↺</span>
             <span class="tool-label">历史</span>
           </button>
@@ -591,23 +796,38 @@ watch(() => appState.currentChapterId, () => {
         </div>
         
         <div class="editor-text-area">
-          <textarea
-            v-model="chapterContent"
-            class="editor-textarea"
+          <div
+            ref="editorRef"
+            class="editor-content"
+            contenteditable="true"
+            :style="{ fontSize: currentFontSize + 'px', fontFamily: currentFontFamily, lineHeight: currentLineHeight }"
+            @input="debouncedSave"
+            @keyup="updateFormatState"
+            @mouseup="updateFormatState"
+            @focus="startWritingTimer"
+            @blur="stopWritingTimer"
             placeholder="开始书写你的故事..."
-          ></textarea>
+          ></div>
         </div>
       </div>
       
       <footer class="editor-footer">
         <div class="footer-left">
-          <span class="plan-info">计划: 到 4,600</span>
+          <span class="plan-info">
+            <span class="plan-progress-bar">
+              <span class="plan-progress-fill" :style="{ width: planProgress + '%' }"></span>
+            </span>
+            <span class="plan-text">计划: {{ wordCount }} / {{ planWordCount }}</span>
+          </span>
         </div>
         <div class="footer-center">
-          <span class="chapter-word-count">本章 {{ wordCount }} 字</span>
+          <span class="chapter-word-count">
+            本章 {{ wordCount }} 字 | {{ chapterCharCount }} 字符 | {{ chapterParagraphCount }} 段
+          </span>
         </div>
         <div class="footer-right">
-          <span class="update-time">更新于 {{ currentChapter ? formatTime(currentChapter.updatedAt) : '--' }}</span>
+          <span class="writing-time">写作: {{ formatWritingTime(writingTime) }}</span>
+          <span class="update-time">更新: {{ currentChapter ? formatTime(currentChapter.updatedAt) : '--' }}</span>
         </div>
       </footer>
     </main>
@@ -640,10 +860,6 @@ watch(() => appState.currentChapterId, () => {
       <div class="side-tool-item" @click="() => {}">
         <span class="tool-icon">📚</span>
         <span class="tool-name">属性</span>
-      </div>
-      <div class="side-tool-item danger" @click="() => {}">
-        <Delete class="tool-icon el-icon" />
-        <span class="tool-name">回收</span>
       </div>
     </aside>
     
@@ -1096,6 +1312,16 @@ watch(() => appState.currentChapterId, () => {
   position: relative;
 }
 
+.editor-main.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: #fdf5e6;
+}
+
 .editor-toolbar {
   display: flex;
   align-items: center;
@@ -1103,12 +1329,46 @@ watch(() => appState.currentChapterId, () => {
   padding: 8px 16px;
   background: white;
   border-bottom: 1px solid #e8e4dc;
+  flex-wrap: wrap;
 }
 
 .toolbar-left, .toolbar-right {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.font-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.font-select, .font-size-select {
+  padding: 4px 8px;
+  border: 1px solid #e8e4dc;
+  border-radius: 4px;
+  background: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.font-select:focus, .font-size-select:focus {
+  outline: none;
+  border-color: #c45c3e;
+}
+
+.line-height-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.line-height-label {
+  font-size: 11px;
+  color: #666;
+  min-width: 28px;
+  text-align: center;
 }
 
 .tool-btn {
@@ -1127,6 +1387,11 @@ watch(() => appState.currentChapterId, () => {
 
 .tool-btn:hover {
   background: #f5f0e8;
+}
+
+.tool-btn.active {
+  background: #ffe4d4;
+  color: #c45c3e;
 }
 
 .tool-btn.primary {
@@ -1152,13 +1417,31 @@ watch(() => appState.currentChapterId, () => {
 .toolbar-center {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .work-name {
   font-size: 13px;
   font-weight: 500;
   color: #333;
+}
+
+.chapter-name {
+  font-size: 12px;
+  color: #666;
+}
+
+.save-status {
+  font-size: 11px;
+  color: #999;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f5f5f5;
+}
+
+.save-status.saved {
+  color: #67c23a;
+  background: #f0f9eb;
 }
 
 .auto-save {
@@ -1172,6 +1455,7 @@ watch(() => appState.currentChapterId, () => {
   flex-direction: column;
   padding: 24px 48px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .chapter-title-area {
@@ -1198,12 +1482,13 @@ watch(() => appState.currentChapterId, () => {
 .editor-text-area {
   flex: 1;
   position: relative;
+  overflow-y: auto;
 }
 
-.editor-textarea {
+.editor-content {
   width: 100%;
   min-height: 400px;
-  height: 100%;
+  height: auto;
   padding: 16px;
   font-size: 16px;
   line-height: 1.8;
@@ -1211,13 +1496,22 @@ watch(() => appState.currentChapterId, () => {
   border: none;
   outline: none;
   background: transparent;
-  resize: none;
   white-space: pre-wrap;
   word-break: break-word;
+  box-sizing: border-box;
 }
 
-.editor-textarea::placeholder {
+.editor-content:focus {
+  outline: none;
+}
+
+.editor-content:empty:before {
+  content: attr(placeholder);
   color: #ccc;
+}
+
+.editor-content[contenteditable="true"] {
+  cursor: text;
 }
 
 .editor-footer {
@@ -1229,7 +1523,42 @@ watch(() => appState.currentChapterId, () => {
   border-top: 1px solid #e8e4dc;
 }
 
-.plan-info, .chapter-word-count, .update-time {
+.footer-left, .footer-center, .footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.plan-info, .chapter-word-count, .update-time, .writing-time {
+  font-size: 12px;
+  color: #666;
+}
+
+.plan-progress-bar {
+  display: inline-block;
+  width: 60px;
+  height: 6px;
+  background: #e8e4dc;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.plan-progress-fill {
+  display: inline-block;
+  height: 100%;
+  background: linear-gradient(90deg, #c45c3e, #ff9a7a);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.plan-text {
+  font-size: 12px;
+  color: #666;
+}
+
+.chapter-word-count {
   font-size: 12px;
   color: #666;
 }

@@ -146,7 +146,7 @@ onMounted(() => {
   <div class="description-container">
     <div class="description-header" data-tauri-drag-region>
       <!-- macOS红绿灯按钮预留区域 -->
-      <div class="traffic-lights-area"></div>
+      <!-- <div class="traffic-lights-area"></div> -->
       <div class="description-status">
         <span class="status-text" :class="displayStatus">
           <span v-if="isLoading">正在加载...</span>

@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "writer",
+        "title": "wri作家助手ter",
         "width": 800,
         "height": 600,
         "decorations": true,
