@@ -97,8 +97,6 @@ const confirmCreateBook = () => {
 
 <template>
   <div class="home-container">
-    
-
     <div class="main-layout">
       <aside data-tauri-drag-region class="sidebar">
         <nav class="sidebar-nav">
@@ -275,7 +273,7 @@ const confirmCreateBook = () => {
 .home-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 95vh;
   background: #fdf8f3;
 }
 

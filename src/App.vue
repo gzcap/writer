@@ -2407,6 +2407,7 @@ registerShortcuts();
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 body {
@@ -2420,7 +2421,7 @@ body {
 .app-window {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;
   position: relative; /* 为红绿灯区域提供定位基准 */
   background: #fff;
 }

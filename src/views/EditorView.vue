@@ -518,12 +518,12 @@ watch(() => appState.currentChapterId, () => {
         </div>
       </div>
       
-      <div class="sidebar-footer">
+      <!-- <div class="sidebar-footer">
         <button class="new-chapter-btn">
           <Plus class="btn-icon" />
           <span>新建章节</span>
         </button>
-      </div>
+      </div> -->
     </aside>
     
     <main class="editor-main">
@@ -554,7 +554,7 @@ watch(() => appState.currentChapterId, () => {
         
         <div class="toolbar-center">
           <span class="work-name">{{ currentWork?.title || "未命名作品" }}</span>
-          <span class="auto-save">本地实时保存中</span>
+          <!-- <span class="auto-save">本地实时保存中</span> -->
         </div>
         
         <div class="toolbar-right">
@@ -566,14 +566,14 @@ watch(() => appState.currentChapterId, () => {
             <span>🔍</span>
             <span class="tool-label">查找替换</span>
           </button>
-          <button class="tool-btn">
+          <!-- <button class="tool-btn">
             <span>ⓝ</span>
             <span class="tool-label">取名</span>
           </button>
           <button class="tool-btn">
             <span>✏️</span>
             <span class="tool-label">画师</span>
-          </button>
+          </button> -->
           <button class="tool-btn">
             <span>↺</span>
             <span class="tool-label">历史</span>
@@ -680,7 +680,7 @@ watch(() => appState.currentChapterId, () => {
 <style scoped>
 .editor-layout {
   display: flex;
-  height: 100vh;
+  height: 95vh;
   background: #fdf5e6;
 }
 

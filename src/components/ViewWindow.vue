@@ -462,7 +462,7 @@ onMounted(async () => {
   width: 70px;
   height: 32px;
   flex-shrink: 0;
-  /* pointer-events: none; 让点击事件穿透，不影响拖动 */
+  pointer-events: none; 
   /* macOS红绿灯按钮区域 */
 }
 

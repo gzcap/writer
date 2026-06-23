@@ -530,7 +530,7 @@ const selectCharacter = (char: Character) => {
   background-size: 120px 120px;
   background-repeat: repeat;
   opacity: 0.03;
-  /* pointer-events: none; */
+  pointer-events: none;
   z-index: 0;
 }
 
