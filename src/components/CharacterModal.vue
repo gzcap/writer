@@ -94,7 +94,7 @@ const saveCharacterToFile = async () => {
     };
     
     // 创建书籍文件夹
-    const workFolder = await join(appState.savePath, sanitizeFileName(props.work.title || "未命名作品"));
+    const workFolder = await join(appState.savePath, "novel", sanitizeFileName(props.work.title || "未命名作品"));
     await mkdir(workFolder, { recursive: true });
     
     // 创建角色文件夹

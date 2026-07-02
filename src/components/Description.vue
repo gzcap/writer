@@ -57,7 +57,7 @@ const loadDescriptionFromFile = async () => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
     
-    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
     const descPath = await join(workFolder, "简介.md");
     
     if (await exists(descPath)) {
@@ -99,7 +99,7 @@ const saveDescriptionToFile = async () => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
     
-    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
     await mkdir(workFolder, { recursive: true });
     
     const descPath = await join(workFolder, "简介.md");

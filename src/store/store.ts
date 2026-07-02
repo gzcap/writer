@@ -31,6 +31,9 @@ export const createAppState = (): AppState => {
     showSettingModal: false,
     showDescriptionModal: false,
     showLocalSaveModal: false,
+    homeSubView: 'works',
+    knowledgeItems: [],
+    knowledgeFolders: [],
   });
 };
 

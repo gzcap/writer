@@ -13,7 +13,7 @@
  * 7. 自动保存和增量保存逻辑
  */
 
-import { provide, reactive, computed } from "vue";
+import { provide, reactive, computed, ref } from "vue";
 
 // 导入组件
 import HomeView from "./views/HomeView.vue";
@@ -36,6 +36,7 @@ import type {
   Tab,
   AppState,
   TabViewType,
+  KnowledgeItem,
 } from "./types";
 
 // 导入工具函数
@@ -60,6 +61,9 @@ const appState = reactive<AppState>({
   showSettingModal: false,
   showDescriptionModal: false,
   showLocalSaveModal: false,
+  homeSubView: 'works',
+  knowledgeItems: [],
+  knowledgeFolders: [],
   savePath: "",
   isSaving: false,
   saveStatus: "idle",
@@ -102,12 +106,15 @@ const loadWorksFromFileSystem = async () => {
       return;
     }
 
+    // 小说存放在 savePath/novel/ 下
+    const novelPath = await join(savePath, "novel");
+
     // 检查目录是否存在，不存在则创建
-    const pathExists = await exists(savePath);
+    const pathExists = await exists(novelPath);
     if (!pathExists) {
       console.log("保存路径不存在，正在创建...");
       try {
-        await mkdir(savePath, { recursive: true });
+        await mkdir(novelPath, { recursive: true });
         console.log("保存路径已创建");
       } catch (mkdirError) {
         console.error("创建保存路径失败:", mkdirError);
@@ -117,12 +124,45 @@ const loadWorksFromFileSystem = async () => {
     }
 
     // 读取目录下的所有文件夹（每个文件夹是一个作品）
-    const entries = await readDir(savePath);
+    let entries = await readDir(novelPath);
+
+    // 迁移旧数据：若 novel/ 为空，但 savePath 根目录下存在小说文件夹，则移入 novel/
+    if (entries.length === 0) {
+      try {
+        const { rename } = await import("@tauri-apps/plugin-fs");
+        const rootEntries = await readDir(savePath);
+        // 已知系统文件夹，不迁移
+        const systemFolders = new Set(["novel", "knowledge"]);
+        for (const rootEntry of rootEntries) {
+          if (!rootEntry.isDirectory || !rootEntry.name) continue;
+          if (systemFolders.has(rootEntry.name)) continue;
+          // 判断是否为小说文件夹：包含 简介.md 或 角色/大纲/灵感/设定 子文件夹
+          const oldPath = await join(savePath, rootEntry.name);
+          const subEntries = await readDir(oldPath);
+          const isNovel = subEntries.some(
+            (e) =>
+              (e.isFile && e.name === "简介.md") ||
+              (e.isDirectory &&
+                ["角色", "大纲", "灵感", "设定"].includes(e.name || "")),
+          );
+          if (isNovel) {
+            const newPath = await join(novelPath, rootEntry.name);
+            await rename(oldPath, newPath);
+            console.log(`已迁移小说到 novel/: ${rootEntry.name}`);
+          }
+        }
+        // 重新读取迁移后的 novel/ 目录
+        entries = await readDir(novelPath);
+      } catch (migrateError) {
+        console.error("迁移旧小说数据失败:", migrateError);
+      }
+    }
+
     const works: Work[] = [];
 
     for (const entry of entries) {
       if (entry.isDirectory && entry.name) {
-        const workFolder = await join(savePath, entry.name);
+        const workFolder = await join(novelPath, entry.name);
         const work = await loadWorkFromFolder(workFolder, entry.name);
         if (work) {
           works.push(work);
@@ -705,10 +745,14 @@ const syncToFileSystem = async () => {
       await import("@tauri-apps/plugin-fs");
     const { join } = await import("@tauri-apps/api/path");
 
+    // 小说存放在 savePath/novel/ 下
+    const novelPath = await join(appState.savePath, "novel");
+    await mkdir(novelPath, { recursive: true });
+
     // 同步每一部作品
     for (const work of appState.works) {
       const workFolder = await join(
-        appState.savePath,
+        novelPath,
         sanitizeFileName(work.title),
       );
 
@@ -990,6 +1034,16 @@ const isViewWindow = computed(() => {
   const hash = window.location.hash.slice(1);
   return hash.startsWith("/view?");
 });
+
+const isIdeMode = ref(false);
+const ideIconUrl = new URL("./assets/index.png", import.meta.url).href;
+
+const toggleIdeMode = () => {
+  isIdeMode.value = !isIdeMode.value;
+  if (isIdeMode.value) {
+    window.location.hash = "/ide";
+  }
+};
 
 const closeTab = (tabId: string) => {
   const tab = appState.tabs.find((t) => t.id === tabId);
@@ -2185,6 +2239,157 @@ const saveWorkIncremental = async (work: Work, maxRetries = 3) => {
   }
 };
 
+// ==================== 知识库管理逻辑 ====================
+
+const addKnowledgeItem = (item: Omit<KnowledgeItem, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const newItem: KnowledgeItem = {
+    ...item,
+    id: generateId(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  appState.knowledgeItems.push(newItem);
+  saveKnowledgeData();
+};
+
+const updateKnowledgeItem = (id: string, updates: Partial<KnowledgeItem>) => {
+  const item = appState.knowledgeItems.find(i => i.id === id);
+  if (item) {
+    Object.assign(item, updates, { updatedAt: Date.now() });
+    saveKnowledgeData();
+  }
+};
+
+const deleteKnowledgeItem = (id: string) => {
+  const index = appState.knowledgeItems.findIndex(i => i.id === id);
+  if (index !== -1) {
+    appState.knowledgeItems.splice(index, 1);
+    // 从文件夹中移除
+    appState.knowledgeFolders.forEach(folder => {
+      const idx = folder.itemIds.indexOf(id);
+      if (idx !== -1) folder.itemIds.splice(idx, 1);
+    });
+    saveKnowledgeData();
+  }
+};
+
+const toggleKnowledgeFavorite = (id: string) => {
+  const item = appState.knowledgeItems.find(i => i.id === id);
+  if (item) {
+    item.favorite = !item.favorite;
+    item.updatedAt = Date.now();
+    saveKnowledgeData();
+  }
+};
+
+const saveKnowledgeData = () => {
+  try {
+    const data = {
+      knowledgeItems: appState.knowledgeItems,
+      knowledgeFolders: appState.knowledgeFolders,
+    };
+    localStorage.setItem('writer-knowledge', JSON.stringify(data));
+    // 同步到文件系统（knowledge 文件夹下，md 格式）
+    syncKnowledgeToFileSystem();
+  } catch (error) {
+    console.error('保存知识库数据失败:', error);
+  }
+};
+
+// 知识库分类中文名
+const knowledgeCategoryNames: Record<string, string> = {
+  character: '角色',
+  plot: '情节',
+  quote: '名句',
+  cheat: '金手指',
+};
+
+// 知识库题材中文名
+const knowledgeGenreNames: Record<string, string> = {
+  fantasy: '玄幻',
+  urban: '都市',
+  comedy: '搞笑',
+  romance: '恋爱',
+};
+
+// 同步知识库到文件系统（savePath/knowledge/<分类>/<标题>.md）
+const syncKnowledgeToFileSystem = async () => {
+  if (!appState.savePath) return;
+
+  try {
+    const { mkdir, writeTextFile, readDir, remove } =
+      await import("@tauri-apps/plugin-fs");
+    const { join } = await import("@tauri-apps/api/path");
+
+    const knowledgePath = await join(appState.savePath, "knowledge");
+    await mkdir(knowledgePath, { recursive: true });
+
+    // 记录当前应有的文件名集合（用于清理已删除的条目）
+    const validFileNames = new Set<string>();
+
+    for (const item of appState.knowledgeItems) {
+      const categoryName = knowledgeCategoryNames[item.category] || '其他';
+      const categoryFolder = await join(knowledgePath, categoryName);
+      await mkdir(categoryFolder, { recursive: true });
+
+      const fileName = `${sanitizeFileName(item.title || '未命名')}.md`;
+      const relativeName = `${categoryName}/${fileName}`;
+      validFileNames.add(relativeName);
+
+      const filePath = await join(categoryFolder, fileName);
+
+      const genresText = (item.genres || [])
+        .map(g => knowledgeGenreNames[g] || g)
+        .join(', ');
+      const tagsText = (item.tags || []).join(', ');
+
+      const content = `# ${item.title}\n\n分类: ${categoryName}\n题材: ${genresText}\n标签: ${tagsText}\n收藏: ${item.favorite ? '是' : '否'}\n\n${item.content || ''}`;
+      await writeTextFile(filePath, content);
+    }
+
+    // 清理已删除的条目文件：遍历各分类文件夹，删除不在 validFileNames 中的文件
+    const categoryFolders = await readDir(knowledgePath);
+    for (const catEntry of categoryFolders) {
+      if (!catEntry.isDirectory || !catEntry.name) continue;
+      const catFiles = await readDir(await join(knowledgePath, catEntry.name));
+      for (const fileEntry of catFiles) {
+        if (fileEntry.isFile && fileEntry.name?.endsWith('.md')) {
+          const relativeName = `${catEntry.name}/${fileEntry.name}`;
+          if (!validFileNames.has(relativeName)) {
+            await remove(await join(knowledgePath, catEntry.name, fileEntry.name));
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('同步知识库到文件系统失败:', error);
+  }
+};
+
+const loadKnowledgeData = () => {
+  try {
+    const saved = localStorage.getItem('writer-knowledge');
+    if (saved) {
+      const data = JSON.parse(saved);
+      // 兼容旧数据：将单个 genre 转为 genres 数组
+      const items = data.knowledgeItems || [];
+      items.forEach((item: any) => {
+        if (!item.genres) {
+          item.genres = item.genre ? [item.genre] : [];
+          delete item.genre;
+        }
+      });
+      appState.knowledgeItems = items;
+      appState.knowledgeFolders = data.knowledgeFolders || [];
+    }
+  } catch (error) {
+    console.error('加载知识库数据失败:', error);
+  }
+};
+
+// 初始加载知识库数据
+loadKnowledgeData();
+
 provide("appState", appState);
 provide("saveData", saveData);
 provide("autoSave", autoSave);
@@ -2221,6 +2426,10 @@ provide("markInspirationModified", markInspirationModified);
 provide("markDescriptionModified", markDescriptionModified);
 provide("saveStatus", saveStatus);
 provide("openLocalSaveModal", openLocalSaveModal);
+provide("addKnowledgeItem", addKnowledgeItem);
+provide("updateKnowledgeItem", updateKnowledgeItem);
+provide("deleteKnowledgeItem", deleteKnowledgeItem);
+provide("toggleKnowledgeFavorite", toggleKnowledgeFavorite);
 
 // 快捷键支持
 const registerShortcuts = () => {
@@ -2256,6 +2465,16 @@ registerShortcuts();
       <div class="title-bar"></div>
       <!-- tabs-bar 移动到 title-bar 内部 -->
       <div v-if="!isViewWindow" data-tauri-drag-region class="tabs-bar">
+        <!-- IDE按钮 -->
+        <button 
+          class="ide-tab-btn"
+          :class="{ active: isIdeMode }"
+          @click="toggleIdeMode"
+        >
+          <span v-if="isIdeMode" class="ide-label">知识库</span>
+          <img class="ide-icon" :src="ideIconUrl" alt="IDE" />
+        </button>
+        
         <div
           class="tab-item home-tab"
           :class="{ active: appState.view === 'home' }"
@@ -2466,6 +2685,50 @@ body {
   background: #fdf5e6;
   color: #c45c3e;
   font-weight: 500;
+}
+
+/* IDE按钮样式 */
+.ide-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  background: #e8e8e8;
+  height: 23px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #666;
+  transition: all 0.2s;
+  margin-top: 6px;
+  margin-right: 3px;
+}
+
+.ide-tab-btn:hover {
+  background: #d0d0d0;
+}
+
+.ide-tab-btn.active {
+  background: #90ee90;
+  color: white;
+}
+
+.ide-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  transition: filter 0.2s;
+  filter: grayscale(100%);
+}
+
+.ide-tab-btn.active .ide-icon {
+  filter: grayscale(0%);
+}
+
+.ide-label {
+  font-weight: 600;
+  font-size: 12px;
 }
 
 .tab-title {

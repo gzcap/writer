@@ -210,6 +210,12 @@ export interface AppState {
   showDescriptionModal: boolean;
   /** 是否显示本地保存模态框 */
   showLocalSaveModal: boolean;
+  /** 首页子视图 */
+  homeSubView: HomeSubView;
+  /** 知识库条目列表 */
+  knowledgeItems: KnowledgeItem[];
+  /** 知识库文件夹列表 */
+  knowledgeFolders: KnowledgeFolder[];
 }
 
 /**
@@ -237,3 +243,58 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
  * 视图类型
  */
 export type ViewType = 'outline' | 'character' | 'description' | 'inspiration';
+
+/**
+ * 知识库分类
+ */
+export type KnowledgeCategory = 'character' | 'plot' | 'quote' | 'cheat';
+
+/**
+ * 知识库题材
+ */
+export type KnowledgeGenre = 'fantasy' | 'urban' | 'comedy' | 'romance';
+
+/**
+ * 知识库条目
+ */
+export interface KnowledgeItem {
+  /** 条目ID */
+  id: string;
+  /** 标题 */
+  title: string;
+  /** 内容 */
+  content: string;
+  /** 分类 */
+  category: KnowledgeCategory;
+  /** 题材（支持多选） */
+  genres: KnowledgeGenre[];
+  /** 标签 */
+  tags: string[];
+  /** 创建时间 */
+  createdAt: number;
+  /** 更新时间 */
+  updatedAt: number;
+  /** 是否收藏 */
+  favorite: boolean;
+}
+
+/**
+ * 知识库文件夹
+ */
+export interface KnowledgeFolder {
+  /** 文件夹ID */
+  id: string;
+  /** 文件夹名称 */
+  name: string;
+  /** 题材 */
+  genre: KnowledgeGenre;
+  /** 文件夹内条目ID列表 */
+  itemIds: string[];
+  /** 创建时间 */
+  createdAt: number;
+}
+
+/**
+ * 首页子视图
+ */
+export type HomeSubView = 'works' | 'knowledge';

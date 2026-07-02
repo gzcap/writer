@@ -253,7 +253,7 @@ const deleteOutlineItem = async (itemId: string) => {
         return name.replace(/[\\/:*?"<>|]/g, "_").trim();
       };
       
-      const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+      const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
       const outlineMainFolder = await join(workFolder, "大纲");
       const outlineFolder = await join(outlineMainFolder, "大纲");
       const fileName = sanitizeFileName(item.title);
@@ -313,7 +313,7 @@ const deleteDetailItem = async (itemId: string) => {
         return name.replace(/[\\/:*?"<>|]/g, "_").trim();
       };
       
-      const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+      const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
       const outlineMainFolder = await join(workFolder, "大纲");
       const detailFolder = await join(outlineMainFolder, "细纲");
       const fileName = sanitizeFileName(item.title);
@@ -365,7 +365,7 @@ const saveOutlineToFile = async () => {
     };
     
     // 书名文件夹
-    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
     await mkdir(workFolder, { recursive: true });
     
     // 大纲文件夹
@@ -410,7 +410,7 @@ const saveDetailToFile = async () => {
     };
     
     // 书名文件夹
-    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
     await mkdir(workFolder, { recursive: true });
     
     // 大纲文件夹
@@ -450,7 +450,7 @@ const loadOutlineFromFile = async () => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
     
-    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
     const outlineMainFolder = await join(workFolder, "大纲");
     const outlineFolder = await join(outlineMainFolder, "大纲");
     
@@ -525,7 +525,7 @@ const loadDetailFromFile = async () => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
     
-    const workFolder = await join(savePath, sanitizeFileName(props.workTitle || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(props.workTitle || "未命名作品"));
     const outlineMainFolder = await join(workFolder, "大纲");
     const detailFolder = await join(outlineMainFolder, "细纲");
     

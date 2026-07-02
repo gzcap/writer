@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from "vue";
 import type { Work, Character, Inspiration } from "../types";
-import { Search, Delete, Plus, User, Close } from "@element-plus/icons-vue";
+import { Search, Delete, Plus, User } from "@element-plus/icons-vue";
 import Description from "./Description.vue";
 import Outline from "./Outline.vue";
 import { ElButton, ElMessageBox, ElMessage } from "element-plus";
@@ -122,7 +122,7 @@ const saveCharactersToFile = async () => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
     
-    const workFolder = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(workTitle.value || "未命名作品"));
     const charsFolder = await join(workFolder, "角色");
     await mkdir(charsFolder, { recursive: true });
     
@@ -181,7 +181,7 @@ const deleteInspiration = async (inspId: string) => {
         return name.replace(/[\\/:*?"<>|]/g, "_").trim();
       };
       
-      const inspPath = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"), "灵感", `${sanitizeFileName(insp.title || "未命名灵感")}.md`);
+      const inspPath = await join(savePath, "novel", sanitizeFileName(workTitle.value || "未命名作品"), "灵感", `${sanitizeFileName(insp.title || "未命名灵感")}.md`);
       if (await exists(inspPath)) {
         await remove(inspPath);
         console.log(`已删除灵感文件: ${inspPath}`);
@@ -216,7 +216,7 @@ const saveInspirationsToFile = async () => {
       return name.replace(/[\\/:*?"<>|]/g, "_").trim();
     };
     
-    const workFolder = await join(savePath, sanitizeFileName(workTitle.value || "未命名作品"));
+    const workFolder = await join(savePath, "novel", sanitizeFileName(workTitle.value || "未命名作品"));
     const inspFolder = await join(workFolder, "灵感");
     await mkdir(inspFolder, { recursive: true });
     
