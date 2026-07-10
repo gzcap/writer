@@ -1108,6 +1108,7 @@ const createNewVolume = async () => {
 
       const volFolder = await join(
         appState.savePath,
+        "novel",
         sanitizeFileName(work.title),
         sanitizeFileName(newVolume.title),
       );
@@ -1141,6 +1142,7 @@ const deleteVolume = async (volumeId: string) => {
 
         const volFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(volume.title),
         );
@@ -1212,6 +1214,7 @@ const deleteChapter = async (chapterId: string) => {
         if (volume) {
           const chapPath = await join(
             appState.savePath,
+            "novel",
             sanitizeFileName(work.title),
             sanitizeFileName(volume.title),
             `${sanitizeFileName(chapter.title)}.md`,
@@ -1224,6 +1227,7 @@ const deleteChapter = async (chapterId: string) => {
           // 没有卷的章节，删除根目录下的文件
           const chapPath = await join(
             appState.savePath,
+            "novel",
             sanitizeFileName(work.title),
             `${sanitizeFileName(chapter.title)}.md`,
           );
@@ -1281,11 +1285,13 @@ const updateVolume = async (
 
         const volFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(oldTitle),
         );
         const newVolFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(title),
         );
@@ -1347,11 +1353,13 @@ const reorderVolumes = async (volumeIds: string[]) => {
       for (const v of work.volumes) {
         const oldFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(v.title),
         );
         const tempFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           `temp_${v.id}`,
         );
@@ -1364,11 +1372,13 @@ const reorderVolumes = async (volumeIds: string[]) => {
       for (const v of work.volumes) {
         const tempFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           `temp_${v.id}`,
         );
         const newFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(v.title),
         );
@@ -1407,6 +1417,7 @@ const reorderChapters = async (volumeId: string, chapterIds: string[]) => {
 
       const volFolder = await join(
         appState.savePath,
+        "novel",
         sanitizeFileName(work.title),
         sanitizeFileName(volume.title),
       );
@@ -1522,6 +1533,7 @@ const moveVolume = async (volumeId: string, direction: "up" | "down") => {
       for (const v of work.volumes) {
         const oldFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(
             sortedVolumes.find((sv) => sv.id === v.id && sv.title !== v.title)
@@ -1530,6 +1542,7 @@ const moveVolume = async (volumeId: string, direction: "up" | "down") => {
         );
         const newFolder = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           sanitizeFileName(v.title),
         );
@@ -1574,6 +1587,7 @@ const moveChapter = async (chapterId: string, direction: "up" | "down") => {
 
       const volFolder = await join(
         appState.savePath,
+        "novel",
         sanitizeFileName(work.title),
         sanitizeFileName(volume.title),
       );
@@ -1719,6 +1733,7 @@ const deleteCharacter = async (charId: string) => {
 
         const charPath = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           "角色",
           `${sanitizeFileName(char.name)}.md`,
@@ -1766,6 +1781,7 @@ const deleteInspiration = async (inspId: string) => {
 
         const inspPath = await join(
           appState.savePath,
+          "novel",
           sanitizeFileName(work.title),
           "灵感",
           `${sanitizeFileName(insp.title)}.md`,
@@ -1832,6 +1848,7 @@ const saveWorkToLocal = async (work: Work) => {
     // 创建书籍文件夹
     const workFolder = await join(
       appState.savePath,
+      "novel",
       sanitizeFileName(work.title || "未命名作品"),
     );
     await mkdir(workFolder, { recursive: true });
@@ -2056,6 +2073,7 @@ const saveWorkIncremental = async (work: Work, maxRetries = 3) => {
       // 创建书籍文件夹
       const workFolder = await join(
         appState.savePath,
+        "novel",
         sanitizeFileName(work.title || "未命名作品"),
       );
       await mkdir(workFolder, { recursive: true });
